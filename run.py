@@ -5,10 +5,17 @@ Usage:
     python run.py                  # uses config.yaml, opens the GUI
     python run.py --config my.yaml
     python run.py --no-gui         # headless (server) mode
+
+Exit codes (so a supervisor / .bat wrapper can decide whether to restart):
+    0  clean shutdown (you closed the window or pressed Ctrl+C)
+    2  configuration/setup error — do NOT auto-restart, fix the config first
+    1  unexpected crash — safe to auto-restart
 """
 
 import argparse
 import logging
+import logging.handlers
+import os
 import signal
 import sys
 import threading
@@ -17,20 +24,51 @@ from bot.config import load_config
 from bot.state import BotState
 from bot.trader import TradingBot
 
+CONFIG_ERROR = 2
 
-def main():
+
+def _setup_logging(level_name: str, log_file: str | None):
+    level = getattr(logging, level_name.upper(), logging.INFO)
+    handlers = [logging.StreamHandler()]
+    if log_file:
+        # Rotate so a bot left running for weeks can't fill the disk.
+        handlers.append(
+            logging.handlers.RotatingFileHandler(
+                log_file, maxBytes=2_000_000, backupCount=5, encoding="utf-8"
+            )
+        )
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+        handlers=handlers,
+    )
+
+
+def main() -> int:
     parser = argparse.ArgumentParser(description="HTX futures trading bot")
     parser.add_argument("--config", default="config.yaml", help="path to config file")
     parser.add_argument("--no-gui", action="store_true", help="run without the GUI")
+    parser.add_argument("--log-file", default="bot.log",
+                        help="rotating log file (empty string to disable)")
     args = parser.parse_args()
 
-    cfg = load_config(args.config)
+    try:
+        cfg = load_config(args.config)
+    except FileNotFoundError:
+        print(f"Config file not found: {args.config}\n"
+              f"Copy config.example.yaml to config.yaml and edit it first.",
+              file=sys.stderr)
+        return CONFIG_ERROR
+    except ValueError as exc:
+        print(f"Configuration error: {exc}", file=sys.stderr)
+        return CONFIG_ERROR
 
-    logging.basicConfig(
-        level=getattr(logging, cfg["logging"]["level"].upper(), logging.INFO),
-        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
-    )
+    _setup_logging(cfg["logging"]["level"], args.log_file or None)
     log = logging.getLogger("bot")
+
+    if not os.path.exists(args.config):
+        log.warning("no %s found — running on built-in defaults (paper mode)",
+                    args.config)
 
     if not cfg["trading"]["paper_trading"]:
         log.warning("LIVE TRADING is enabled — real orders will be sent to HTX")
@@ -55,7 +93,7 @@ def main():
             dashboard.run()
             bot.stop()
             trader_thread.join(timeout=10)
-            return
+            return 0
 
     if not use_gui:
         stop = threading.Event()
@@ -66,9 +104,13 @@ def main():
             stop.set()
 
         signal.signal(signal.SIGINT, handle_sig)
-        signal.signal(signal.SIGTERM, handle_sig)
+        try:
+            signal.signal(signal.SIGTERM, handle_sig)
+        except (ValueError, AttributeError):
+            pass  # SIGTERM not available on some Windows setups
         while trader_thread.is_alive() and not stop.is_set():
             trader_thread.join(timeout=1)
+    return 0
 
 
 if __name__ == "__main__":

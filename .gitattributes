@@ -1,0 +1,6 @@
+# Windows batch files must use CRLF line endings to run correctly.
+*.bat text eol=crlf
+
+# Keep shell scripts and Python as LF.
+*.sh text eol=lf
+*.py text eol=lf

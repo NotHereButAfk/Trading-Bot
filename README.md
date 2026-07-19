@@ -50,6 +50,12 @@ until you press **Confirm**.
 
 ## Quick start
 
+**On Windows** (run it 24/7 on your own PC): see **[WINDOWS_SETUP.md](WINDOWS_SETUP.md)**
+for a click-by-click guide — download, `setup.bat`, then `run_bot.bat` (which
+auto-restarts the bot if it crashes and can start on boot).
+
+**On macOS / Linux:**
+
 ```bash
 # 1. Install dependencies (Python 3.10+)
 pip install -r requirements.txt
@@ -70,6 +76,9 @@ Run on a server without a display:
 ```bash
 python run.py --no-gui
 ```
+
+The bot writes a rotating `bot.log` and appends closed trades to `trades.csv`,
+so you can review what happened during unattended runs.
 
 ## Going live (when you're ready)
 
