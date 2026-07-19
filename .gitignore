@@ -1,0 +1,13 @@
+# Secrets — never commit your real config or saved API keys
+config.yaml
+credentials.json
+
+# Runtime output
+trades.csv
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
