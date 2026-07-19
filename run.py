@@ -25,6 +25,7 @@ from bot.state import BotState
 from bot.trader import TradingBot
 
 CONFIG_ERROR = 2
+RESTART_REQUESTED = 3  # run_bot.bat / run_bot_headless.bat relaunch on this code
 
 
 def _make_connection_tester(cfg: dict):
@@ -114,8 +115,13 @@ def main() -> int:
             trader_thread.join(timeout=10)
             if dashboard.restart_requested:
                 log.info("restarting to apply new settings")
-                # Clean full restart: re-exec the same command so the new key
-                # and mode are picked up from scratch (preflight runs again).
+                if os.environ.get("BOT_SUPERVISED") == "1":
+                    # Launched by run_bot(.bat): exit with a code the supervisor
+                    # relaunches on. Never os.execv here — on Windows that spawns
+                    # a SECOND process while the supervisor also restarts us,
+                    # which would run two bots against the same account.
+                    return RESTART_REQUESTED
+                # Direct run (no supervisor): replace this process cleanly.
                 os.execv(sys.executable, [sys.executable] + sys.argv)
             return 0
 

@@ -4,6 +4,7 @@ Runs on the main thread; the trading loop runs on a daemon thread and the GUI
 polls BotState.snapshot() on a timer, so no Tk calls ever cross threads.
 """
 
+import threading
 import time
 import tkinter as tk
 from tkinter import messagebox, ttk
@@ -303,10 +304,6 @@ class Dashboard:
         win.transient(self.root)
         win.grab_set()  # modal
 
-        def label(text, **kw):
-            tk.Label(win, text=text, bg=BG, fg=kw.pop("fg", FG), anchor="w",
-                     justify="left", **kw).pack(fill="x", padx=18, **kw.pop("pack", {}))
-
         tk.Label(win, text="HTX API credentials", bg=BG, fg=ACCENT,
                  font=("TkDefaultFont", 13, "bold"), anchor="w").pack(
             fill="x", padx=18, pady=(16, 2))
@@ -405,12 +402,25 @@ class Dashboard:
                 status_var.set("Enter both key and secret first.")
                 return
             status_var.set("Testing connection to HTX…")
-            win.update_idletasks()
-            try:
-                ok, message = self.test_connection(api_key, api_secret)
-            except Exception as exc:  # network / library error
-                ok, message = False, str(exc)
-            status_var.set(("✓ " if ok else "✗ ") + message)
+
+            # Run the network call off the Tk thread so the GUI never freezes,
+            # then hand the result back to the Tk thread via win.after().
+            def worker():
+                try:
+                    ok, message = self.test_connection(api_key, api_secret)
+                except Exception as exc:  # network / library error
+                    ok, message = False, str(exc)
+
+                def show():
+                    if win.winfo_exists():
+                        status_var.set(("✓ " if ok else "✗ ") + message)
+
+                try:
+                    win.after(0, show)
+                except tk.TclError:
+                    pass  # dialog already closed
+
+            threading.Thread(target=worker, daemon=True).start()
 
         def persist() -> bool:
             """Save the form. Returns True on success, False if cancelled/failed."""

@@ -12,12 +12,18 @@ if not exist ".venv\Scripts\python.exe" (
     exit /b 1
 )
 
+set BOT_SUPERVISED=1
+
 :restart
 echo [%date% %time%] Starting HTX Futures Bot (headless)...
 ".venv\Scripts\python.exe" run.py --no-gui %*
 set CODE=!errorlevel!
 
 if "!CODE!"=="0" goto :end
+if "!CODE!"=="3" (
+    echo [%date% %time%] Applying new settings - restarting now...
+    goto :restart
+)
 if "!CODE!"=="2" (
     echo [%date% %time%] Configuration error - NOT restarting. Fix config.yaml.
     pause
