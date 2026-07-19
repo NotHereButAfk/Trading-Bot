@@ -64,9 +64,12 @@ To add your HTX API key, the easiest way is **in the app**: start the bot, click
 **⚙ Settings / API Key** in the top bar, paste your key and secret, and Save.
 It's stored locally in `credentials.json` (gitignored, owner-only) — you never
 have to edit a file. You can also edit `config.yaml` in Notepad if you prefer.
-Either way, **never paste your key into a chat or share it**. To trade real
-money, follow **[GO_LIVE.md](GO_LIVE.md)** (tick the LIVE box in Settings, or set
-`paper_trading: false` + `confirm_live: true`).
+**Never paste your key into a chat or share it.**
+
+**The mode is automatic: no API key = paper (simulation); an API key = REAL
+money.** So once you save a key, the bot trades for real on the next start — see
+**[GO_LIVE.md](GO_LIVE.md)**. To keep simulating with a key set, tick **Practice
+mode** in Settings (or set `trading.force_paper: true`).
 
 For **unattended 24/7** operation, decide how entries happen:
 

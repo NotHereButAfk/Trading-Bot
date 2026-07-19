@@ -26,7 +26,13 @@ DEFAULTS = {
         "timeframe": "15m",
         "leverage": 5,
         "margin_mode": "isolated",
+        # Mode is decided automatically: with NO API key the bot runs in paper
+        # (simulation); as soon as an API key is present it trades REAL money.
+        # `paper_trading` below is the RESOLVED result of that rule (set at load
+        # time) — you normally don't set it by hand. Set `force_paper: true` to
+        # stay in simulation even when a key is configured (practice mode).
         "paper_trading": True,
+        "force_paper": False,
         "paper_starting_balance": 10000.0,
         "confirm_signals": True,
         "signal_expiry_minutes": 10.0,
@@ -120,7 +126,8 @@ def load_config(path: str) -> dict:
             user_cfg = yaml.safe_load(fh) or {}
     cfg = _deep_merge(DEFAULTS, user_cfg)
 
-    _apply_credentials_file(cfg)
+    creds_data = load_credentials_file(credentials_path(cfg))
+    _apply_credentials_file(cfg, creds_data)
 
     # Environment variables win over everything so secrets can stay out of files.
     env_map = {
@@ -133,14 +140,38 @@ def load_config(path: str) -> dict:
         if os.environ.get(env_name):
             cfg[section][key] = os.environ[env_name]
 
+    cfg["trading"]["paper_trading"] = _resolve_paper_mode(cfg, user_cfg, creds_data)
+
     validate_config(cfg)
     return cfg
+
+
+def _resolve_paper_mode(cfg: dict, user_cfg: dict, creds_data: dict) -> bool:
+    """Decide paper vs live: paper unless an API key is present.
+
+    - No API key           -> paper (simulation), always.
+    - API key present       -> LIVE (real money), unless overridden below.
+    - force_paper: true     -> paper even with a key (practice mode).
+    - An explicit `paper_trading: true` in config.yaml or credentials.json is
+      honored as force_paper (back-compat, and it only ever errs toward safety).
+    """
+    has_key = bool(cfg["exchange"]["api_key"]) and bool(cfg["exchange"]["api_secret"])
+    force_paper = bool(cfg["trading"].get("force_paper"))
+    explicit_paper = (
+        (user_cfg.get("trading") or {}).get("paper_trading") is True
+        or creds_data.get("paper_trading") is True
+    )
+    if force_paper or explicit_paper:
+        return True
+    return not has_key
 
 
 # Fields the Settings screen is allowed to persist, mapped to (section, key).
 _CREDENTIAL_FIELDS = {
     "api_key": ("exchange", "api_key"),
     "api_secret": ("exchange", "api_secret"),
+    "force_paper": ("trading", "force_paper"),
+    # Accepted for back-compat with older saved files; mode is now derived.
     "confirm_live": ("exchange", "confirm_live"),
     "paper_trading": ("trading", "paper_trading"),
 }
@@ -162,8 +193,9 @@ def load_credentials_file(path: str) -> dict:
         return {}
 
 
-def _apply_credentials_file(cfg: dict) -> None:
-    data = load_credentials_file(credentials_path(cfg))
+def _apply_credentials_file(cfg: dict, data: dict | None = None) -> None:
+    if data is None:
+        data = load_credentials_file(credentials_path(cfg))
     for field, (section, key) in _CREDENTIAL_FIELDS.items():
         if field in data and data[field] not in (None, ""):
             cfg[section][key] = data[field]
@@ -198,16 +230,12 @@ def validate_config(cfg: dict) -> None:
     if trading["signal_expiry_minutes"] <= 0:
         raise ValueError("trading.signal_expiry_minutes must be positive")
     if not trading["paper_trading"]:
+        # Live mode is only ever reached when a key is present (see
+        # _resolve_paper_mode), but keep this as a defensive sanity check.
         if not cfg["exchange"]["api_key"] or not cfg["exchange"]["api_secret"]:
             raise ValueError(
                 "Live trading requires exchange.api_key and exchange.api_secret "
                 "(or HTX_API_KEY / HTX_API_SECRET env vars)"
-            )
-        if not cfg["exchange"].get("confirm_live"):
-            raise ValueError(
-                "Live trading is gated: set exchange.confirm_live: true in your "
-                "config to acknowledge you are trading REAL money with real risk. "
-                "(Keep trading.paper_trading: true to stay in simulation.)"
             )
     risk = cfg["risk"]
     if not 0 < risk["risk_per_trade_pct"] <= 10:

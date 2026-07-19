@@ -120,9 +120,8 @@ def test_confirm_skips_when_position_open(cfg):
 # --------------------------------------------------------------- live path
 
 def _live_bot(cfg, exchange=None):
-    cfg["trading"]["paper_trading"] = False
+    cfg["trading"]["paper_trading"] = False  # bot reads the resolved flag directly
     cfg["trading"]["confirm_signals"] = False
-    cfg["exchange"]["confirm_live"] = True
     state = BotState()
     bot = TradingBot(cfg, state, exchange=exchange or FakeExchange())
     state.set_equity(10000.0)  # avoid a live balance call in these unit tests

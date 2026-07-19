@@ -88,12 +88,13 @@ The short version:
 
 1. Create an API key at HTX → **API Management**. Enable **trade** permission
    only — never withdrawals. Bind it to your IP if possible.
-2. Put the key in `config.yaml` (`exchange.api_key` / `api_secret`) or export
-   `HTX_API_KEY` / `HTX_API_SECRET` instead. `config.yaml` is gitignored — and
-   **never paste your key into a chat, commit or screenshot**.
-3. Flip **both** safety switches: `trading.paper_trading: false` **and**
-   `exchange.confirm_live: true`. The bot refuses to trade live unless both are
-   set (and keys are present), so you can't go live by accident.
+2. Add the key via the in-app **⚙ Settings** screen (easiest), or `config.yaml`
+   (`exchange.api_key` / `api_secret`), or `HTX_API_KEY` / `HTX_API_SECRET` env
+   vars. **Never paste your key into a chat, commit or screenshot.**
+3. **The mode is automatic: no API key = paper, an API key = real money.** Just
+   having a key configured means the bot trades for real on the next start.
+   (Set `trading.force_paper: true`, or tick Practice mode in Settings, to keep
+   simulating with a key set.)
 4. Start small: `leverage: 2`, `risk_per_trade_pct: 0.5`, `max_open_positions: 1`,
    and keep `confirm_signals: true` so your first live trades are still your call.
 

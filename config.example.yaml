@@ -11,12 +11,14 @@ exchange:
   #   2. the in-app "Settings / API Key" button (saves to credentials.json), or
   #   3. HTX_API_KEY / HTX_API_SECRET environment variables.
   # The GUI Settings screen is the easiest — you never have to edit this file.
+  #
+  # IMPORTANT — the mode is automatic:
+  #   * NO api key here (and none via the GUI/env) -> PAPER (simulation).
+  #   * An api key present                          -> LIVE, REAL money.
+  # So filling these in means the bot will trade real funds. Leave them blank
+  # to stay in simulation. See trading.force_paper below to practise with a key.
   api_key: ""
   api_secret: ""
-  # SECOND switch required to trade real money. Live trading needs BOTH
-  # trading.paper_trading: false AND this set to true. Leave it false unless
-  # you have read GO_LIVE.md and accept the risk of real losses.
-  confirm_live: false
 
 trading:
   # USDT-margined perpetual swaps, ccxt unified symbols.
@@ -26,7 +28,11 @@ trading:
   timeframe: "15m"          # 1m, 5m, 15m, 30m, 1h, 4h, 1d
   leverage: 5
   margin_mode: "isolated"   # isolated | cross
-  paper_trading: true       # KEEP true until you trust the strategy
+  # Mode is decided automatically from whether an API key is present (see the
+  # exchange section). You normally leave paper_trading alone — it is set for
+  # you at load time. force_paper: true keeps SIMULATION even with a key set,
+  # so you can practise against your real account's data without real orders.
+  force_paper: false
   paper_starting_balance: 10000.0
   confirm_signals: true     # true: signals wait in the control panel for your
                             #       Confirm click (an email is sent when one fires)

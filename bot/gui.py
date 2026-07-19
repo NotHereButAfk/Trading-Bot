@@ -23,13 +23,16 @@ AMBER = "#c9a227"
 
 class Dashboard:
     def __init__(self, state: BotState, refresh_ms: int = 2000, on_close=None,
-                 cfg: dict | None = None, test_connection=None):
+                 cfg: dict | None = None, test_connection=None, on_restart=None):
         self.state = state
         self.refresh_ms = refresh_ms
         self.on_close = on_close
         self.cfg = cfg or {}
         # Optional callback: (api_key, api_secret) -> (ok: bool, message: str)
         self.test_connection = test_connection
+        # Optional: set when the user asks to apply settings via a clean restart.
+        self.on_restart = on_restart
+        self.restart_requested = False
         self._credentials_path = (
             bot_config.credentials_path(self.cfg) if self.cfg else "credentials.json"
         )
@@ -292,7 +295,6 @@ class Dashboard:
         has_secret = bool(saved.get("api_secret")) or bool(
             self.cfg.get("exchange", {}).get("api_secret")
         )
-        live_now = not self.cfg.get("trading", {}).get("paper_trading", True)
 
         win = tk.Toplevel(self.root)
         win.title("API Key & Live Trading")
@@ -347,21 +349,41 @@ class Dashboard:
                        activebackground=BG, activeforeground=FG,
                        anchor="w").pack(fill="x", padx=16, pady=(4, 8))
 
-        # --- live toggle ---
-        live_var = tk.BooleanVar(value=live_now)
-        tk.Checkbutton(
-            win, text="Trade with REAL money (LIVE) — I accept the risk",
-            variable=live_var, bg=BG, fg=RED, selectcolor=PANEL,
-            activebackground=BG, activeforeground=RED, anchor="w",
-            font=("TkDefaultFont", 11, "bold"),
-        ).pack(fill="x", padx=16, pady=(0, 2))
+        # --- how the mode is decided (key presence) ---
         tk.Label(
             win,
-            text=("Unchecked = paper trading (simulated, safe). Checked = the bot "
-                  "will place real orders on HTX with your funds. Changes apply on "
-                  "the next start of the bot."),
-            bg=BG, fg=DIM, anchor="w", justify="left", wraplength=520,
-        ).pack(fill="x", padx=18, pady=(0, 8))
+            text=("MODE IS AUTOMATIC:  no API key = paper (simulation).  "
+                  "An API key = REAL money."),
+            bg=BG, fg=AMBER, anchor="w", justify="left", wraplength=520,
+            font=("TkDefaultFont", 11, "bold"),
+        ).pack(fill="x", padx=18, pady=(2, 4))
+
+        force_paper_now = bool(self.cfg.get("trading", {}).get("force_paper"))
+        force_paper_var = tk.BooleanVar(value=force_paper_now)
+        tk.Checkbutton(
+            win, text="Practice mode: simulate even when a key is set (no real orders)",
+            variable=force_paper_var, bg=BG, fg=FG, selectcolor=PANEL,
+            activebackground=BG, activeforeground=FG, anchor="w",
+        ).pack(fill="x", padx=16, pady=(0, 4))
+
+        mode_var = tk.StringVar()
+
+        def resulting_mode(entered_key: bool):
+            will_have_key = entered_key or has_key
+            if force_paper_var.get() or not will_have_key:
+                return "PAPER (simulation)"
+            return "LIVE — REAL MONEY"
+
+        def refresh_mode(*_):
+            mode_var.set("On next start this will run in:  "
+                         + resulting_mode(bool(key_var.get().strip())))
+
+        key_var.trace_add("write", refresh_mode)
+        force_paper_var.trace_add("write", refresh_mode)
+        refresh_mode()
+        tk.Label(win, textvariable=mode_var, bg=BG, fg=FG, anchor="w",
+                 justify="left", wraplength=520,
+                 font=("TkDefaultFont", 11, "bold")).pack(fill="x", padx=18, pady=(0, 8))
 
         status_var = tk.StringVar(value="")
         tk.Label(win, textvariable=status_var, bg=BG, fg=AMBER, anchor="w",
@@ -390,58 +412,77 @@ class Dashboard:
                 ok, message = False, str(exc)
             status_var.set(("✓ " if ok else "✗ ") + message)
 
-        def do_save():
+        def persist() -> bool:
+            """Save the form. Returns True on success, False if cancelled/failed."""
             api_key = key_var.get().strip()
             api_secret = secret_var.get().strip()
-            go_live = live_var.get()
-            # Guard: don't let someone enable live with no key anywhere.
-            if go_live and not (api_key or has_key):
-                messagebox.showerror(
-                    "API key required",
-                    "Enter your API key before enabling live trading.",
-                    parent=win,
-                )
-                return
-            if go_live and not (api_secret or has_secret):
+            will_be_live = resulting_mode(bool(api_key)).startswith("LIVE")
+            # A key with no matching secret can't trade; guard it.
+            if (api_key or has_key) and not (api_secret or has_secret):
                 messagebox.showerror(
                     "API secret required",
-                    "Enter your API secret before enabling live trading.",
+                    "Enter your API secret to go with the API key.",
                     parent=win,
                 )
-                return
-            if go_live and not messagebox.askyesno(
-                "Confirm LIVE trading",
-                "This will let the bot place REAL orders with REAL money on your "
-                "next start. Are you sure?",
+                return False
+            if will_be_live and not messagebox.askyesno(
+                "Confirm REAL-money trading",
+                "An API key is set and practice mode is off, so the bot will place "
+                "REAL orders with REAL money when it (re)starts. Continue?",
                 parent=win,
             ):
-                return
+                return False
             updates = {
                 "api_key": api_key,
                 "api_secret": api_secret,
-                "paper_trading": not go_live,
-                "confirm_live": bool(go_live),
+                "force_paper": bool(force_paper_var.get()),
             }
             try:
                 bot_config.save_credentials(self._credentials_path, updates)
             except OSError as exc:
                 messagebox.showerror("Could not save", str(exc), parent=win)
+                return False
+            self.state.log_signal("*", "credentials updated from Settings")
+            return True
+
+        def do_save():
+            if not persist():
                 return
-            self.state.log_signal("*", "credentials updated from Settings (applies on restart)")
+            will_be_live = resulting_mode(bool(key_var.get().strip())).startswith("LIVE")
             messagebox.showinfo(
                 "Saved",
                 "Saved to " + self._credentials_path + ".\n\n"
-                + ("LIVE trading is now ENABLED. " if go_live else "Paper mode. ")
-                + "Restart the bot for the change to take effect.",
+                + ("Mode on next start: LIVE (real money). "
+                   if will_be_live else "Mode on next start: paper. ")
+                + "Restart the bot to apply.",
                 parent=win,
             )
             win.destroy()
 
+        def do_save_restart():
+            if not persist():
+                return
+            if self.on_restart is None:
+                messagebox.showinfo(
+                    "Saved",
+                    "Saved. Restart isn't available in this build — restart the "
+                    "bot manually to apply.",
+                    parent=win,
+                )
+                win.destroy()
+                return
+            win.destroy()
+            self.restart_requested = True
+            self.state.log_signal("*", "restarting to apply new settings…")
+            self._handle_close()  # stops the bot and closes the window
+
         tk.Button(btns, text="Cancel", command=win.destroy, bg="#232734", fg=FG,
                   relief="flat", padx=14, pady=4).pack(side="right")
-        tk.Button(btns, text="Save", command=do_save, bg="#1e5c3a", fg=FG,
-                  activebackground=GREEN, activeforeground=BG, relief="flat",
-                  padx=18, pady=4).pack(side="right", padx=8)
+        tk.Button(btns, text="Save & restart", command=do_save_restart, bg="#1e5c3a",
+                  fg=FG, activebackground=GREEN, activeforeground=BG, relief="flat",
+                  padx=14, pady=4).pack(side="right", padx=8)
+        tk.Button(btns, text="Save", command=do_save, bg="#232734", fg=FG,
+                  relief="flat", padx=14, pady=4).pack(side="right", padx=8)
         tk.Button(btns, text="Test connection", command=do_test, bg="#232734", fg=FG,
                   relief="flat", padx=14, pady=4).pack(side="left")
 

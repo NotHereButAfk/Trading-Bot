@@ -107,10 +107,16 @@ def main() -> int:
             dashboard = Dashboard(
                 state, refresh_ms=cfg["gui"]["refresh_ms"], on_close=bot.stop,
                 cfg=cfg, test_connection=_make_connection_tester(cfg),
+                on_restart=True,
             )
             dashboard.run()
             bot.stop()
             trader_thread.join(timeout=10)
+            if dashboard.restart_requested:
+                log.info("restarting to apply new settings")
+                # Clean full restart: re-exec the same command so the new key
+                # and mode are picked up from scratch (preflight runs again).
+                os.execv(sys.executable, [sys.executable] + sys.argv)
             return 0
 
     if not use_gui:

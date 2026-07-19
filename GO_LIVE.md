@@ -33,9 +33,10 @@ Do **not** paste it into a chat window, a commit, a screenshot, or an issue.
 **(a) Easiest — in the app.** Start the bot (`python run.py` or `run_bot.bat`),
 click **⚙ Settings / API Key** in the top bar, paste your Access Key and Secret
 Key, and press **Save**. It's stored locally in `credentials.json` (owner-only,
-gitignored) — you never touch a config file. You can also tick **Trade with REAL
-money (LIVE)** right there to enable live trading, and use **Test connection** to
-check the key works. Changes apply when you restart the bot.
+gitignored) — you never touch a config file. Use **Test connection** to check
+the key works. Saving a key means the bot goes LIVE on the next start (that's the
+rule — see Step 3); tick **Practice mode** in the same screen if you want to keep
+simulating with the key set. Press **Save & restart** to apply right away.
 
 **(b) In `config.yaml`.** If you don't have one yet, `cp config.example.yaml
 config.yaml`, then:
@@ -44,8 +45,10 @@ config.yaml`, then:
 exchange:
   api_key: "YOUR_ACCESS_KEY"
   api_secret: "YOUR_SECRET_KEY"
-  confirm_live: false          # leave false for now
 ```
+
+Note: once these are filled in, the bot trades REAL money on the next start.
+Leave them blank (or set `trading.force_paper: true`) to stay in simulation.
 
 **(c) Environment variables** (the key never touches a file):
 
@@ -57,33 +60,30 @@ export HTX_API_SECRET="YOUR_SECRET_KEY"
 If more than one is set, the order of precedence is: env vars > the in-app
 `credentials.json` > `config.yaml`.
 
-### Verify the key works while STILL in paper mode
+### Test before you trade
 
-Keep `paper_trading: true` and run a backtest/fetch that needs the exchange —
-the easiest check is the backtester, which pulls live candles:
+In the **⚙ Settings** screen, press **Test connection** to confirm the key
+authenticates and shows your balance. You can also verify market access with the
+backtester (it pulls live candles):
 
 ```bash
 python backtest.py --symbol "BTC/USDT:USDT" --timeframe 15m --candles 500
 ```
 
-If that connects and prints results, your network and (public) API access work.
+## Step 3 — Live is automatic once a key is set
 
-## Step 3 — Turn on live trading
+**There is no separate "go live" switch.** The mode is decided by whether an API
+key is present:
 
-The quickest way is the **⚙ Settings** screen from Step 2: tick **Trade with
-REAL money (LIVE)**, Save, and restart. That sets both required switches for you.
+- **No API key** → paper (simulation), always.
+- **API key present** → LIVE, real money.
 
-If you prefer the config file, live trading is gated behind **two** flags so you
-can't start it by accident:
+So the moment you save your key (Step 2) and restart, the bot trades for real.
+If you want to keep simulating *with* a key set (to practise against your real
+account's data), turn on **Practice mode** in Settings — or set
+`trading.force_paper: true` in `config.yaml`.
 
-```yaml
-trading:
-  paper_trading: false     # switch 1
-exchange:
-  confirm_live: true       # switch 2 — "I understand this is real money"
-```
-
-Start conservatively in the same file:
+Before you let it run live, start conservatively in `config.yaml`:
 
 ```yaml
 trading:
@@ -107,8 +107,9 @@ Confirm** on a signal — so the first real trade is still your decision.
 
 ## What the bot does to protect you on live
 
-- **Two-switch gate** — refuses to start live unless both `paper_trading: false`
-  and `confirm_live: true` are set, and API keys are present.
+- **Deliberate by design** — the only thing that turns on real trading is your
+  own API key. No key, no real orders. Practice mode lets you keep a key set
+  while still simulating.
 - **Startup preflight** — sets your leverage/margin mode and emails you if that
   fails; warns you about any position already open on a traded symbol (it will
   not touch positions it didn't open).
