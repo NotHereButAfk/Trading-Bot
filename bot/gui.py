@@ -102,9 +102,18 @@ class Dashboard:
         self.pending_tree.bind("<<TreeviewSelect>>", self._on_signal_select)
         self.pending_tree.pack(fill="x", padx=12, pady=(4, 10))
 
-        # Open trades table
-        tk.Label(self.root, text="Open trades", bg=BG, fg=FG, anchor="w",
-                 font=("TkDefaultFont", 12, "bold")).pack(fill="x", padx=12)
+        # Open trades table with a manual close control
+        trades_header = tk.Frame(self.root, bg=BG)
+        trades_header.pack(fill="x", padx=12)
+        tk.Label(trades_header, text="Open trades", bg=BG, fg=FG, anchor="w",
+                 font=("TkDefaultFont", 12, "bold")).pack(side="left")
+        self.close_btn = tk.Button(
+            trades_header, text="Close position", command=self._close_selected,
+            bg="#4a4326", fg=FG, activebackground="#c9a227", activeforeground=BG,
+            relief="flat", padx=14, pady=2, state="disabled",
+        )
+        self.close_btn.pack(side="right")
+
         open_cols = ("id", "symbol", "side", "size", "entry", "mark", "upnl",
                      "sl", "tp", "opened")
         self.open_tree = ttk.Treeview(self.root, columns=open_cols, show="headings", height=8)
@@ -119,6 +128,7 @@ class Dashboard:
             self.open_tree.column(col, width=width, anchor="center")
         self.open_tree.tag_configure("profit", foreground=GREEN)
         self.open_tree.tag_configure("loss", foreground=RED)
+        self.open_tree.bind("<<TreeviewSelect>>", self._on_trade_select)
         self.open_tree.pack(fill="x", padx=12, pady=(4, 10))
 
         # Bottom: closed trades + signal log side by side
@@ -180,6 +190,22 @@ class Dashboard:
             self.state.log_signal("*", f"signal {signal_id} dismissed from control panel")
         self._refresh_now()
 
+    def _selected_trade_id(self) -> str | None:
+        selection = self.open_tree.selection()
+        return selection[0] if selection else None
+
+    def _on_trade_select(self, _event=None):
+        has_selection = self._selected_trade_id() is not None
+        self.close_btn.configure(state="normal" if has_selection else "disabled")
+
+    def _close_selected(self):
+        trade_id = self._selected_trade_id()
+        if trade_id is None:
+            return
+        if self.state.request_close(trade_id):
+            self.state.log_signal("*", f"close of {trade_id} requested from control panel")
+        self._refresh_now()
+
     # -------------------------------------------------------------- refresh
 
     def _refresh_now(self):
@@ -215,15 +241,19 @@ class Dashboard:
             self.pending_tree.selection_set(selected)
         self._on_signal_select()
 
+        selected_trade = self._selected_trade_id()
         self.open_tree.delete(*self.open_tree.get_children())
         for t in snap["open_trades"]:
             tag = "profit" if t.unrealized_pnl >= 0 else "loss"
-            self.open_tree.insert("", "end", values=(
+            self.open_tree.insert("", "end", iid=t.trade_id, values=(
                 t.trade_id, t.symbol, t.side.upper(),
                 f"{t.base_amount:.6g}", f"{t.entry_price:.6g}", f"{t.mark_price:.6g}",
                 f"{t.unrealized_pnl:+.2f}", f"{t.stop_loss:.6g}", f"{t.take_profit:.6g}",
                 time.strftime("%m-%d %H:%M", time.gmtime(t.opened_at)),
             ), tags=(tag,))
+        if selected_trade and self.open_tree.exists(selected_trade):
+            self.open_tree.selection_set(selected_trade)
+        self._on_trade_select()
 
         self.closed_tree.delete(*self.closed_tree.get_children())
         for t in reversed(snap["closed_trades"]):

@@ -36,8 +36,14 @@ until you press **Confirm**.
   trade open (with entry, stop, target and the signal reasons) and trade close
   (with realized PnL)
 - **GUI control panel** (Tkinter) — pending signals with Confirm/Dismiss,
-  equity, session PnL, open trades with live unrealized PnL, closed-trade
+  equity, session PnL, open trades with live unrealized PnL and a
+  **Close position** button to exit any trade manually, closed-trade
   history and the signal log
+- **Backtester** — replay the exact strategy over historical HTX candles and
+  get win rate, net PnL, profit factor, max drawdown and a per-trade breakdown
+  before risking real money
+- **Test suite** — `pytest` coverage of the indicators, strategy, risk sizing,
+  the confirmation/close flow and the backtester
 - **Paper-trading mode** (default) — trades a simulated balance against live HTX
   market data, no API keys needed
 - Trade history appended to `trades.csv`
@@ -118,6 +124,8 @@ immediately. Instead:
 
 Exits are always automatic — stop-loss, take-profit and trailing stops fire
 without confirmation so a losing position is never left waiting for a click.
+You can also close any open position yourself at any time: select it in the
+**Open trades** table and press **Close position** (it exits at market).
 Note that confirmation mode needs the GUI running; in `--no-gui` mode signals
 would just expire, so run headless setups with `confirm_signals: false`.
 
@@ -130,11 +138,38 @@ An open trade closes when:
 Everything — periods, weights, thresholds, R-multiples — is tunable in
 `config.yaml`.
 
+## Backtesting
+
+Validate the strategy on real history before trading it live:
+
+```bash
+# fetch candles straight from HTX and backtest
+python backtest.py --symbol "BTC/USDT:USDT" --timeframe 15m --candles 2000
+
+# or backtest an offline OHLCV csv (timestamp,open,high,low,close,volume)
+python backtest.py --csv history.csv --out results.csv
+```
+
+It reports win rate, net PnL, profit factor, average win/loss, max drawdown and
+a breakdown of exits by reason, and can write every trade to a CSV with `--out`.
+The backtester runs the **same** signal, sizing and stop/trailing code as the
+live bot, so results reflect the actual strategy — though real fills will differ
+with slippage, and past performance never guarantees future results.
+
+## Running the tests
+
+```bash
+pip install -r requirements.txt   # includes pytest
+pytest
+```
+
 ## Project layout
 
 ```
 run.py                 entry point (GUI + trading thread)
+backtest.py            historical backtester + report
 config.example.yaml    documented config template
+tests/                 pytest suite (strategy, risk, trader, backtest)
 bot/
   config.py            config loading/validation, env-var secrets
   exchange.py          HTX futures wrapper (ccxt)

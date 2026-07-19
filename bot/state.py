@@ -77,6 +77,7 @@ class BotState:
         self.last_update: float = 0.0
         self.stop_requested = threading.Event()
         self.wake_trader = threading.Event()
+        self._close_requests: set[str] = set()
         self._trade_seq = 0
         self._signal_seq = 0
         self._trade_log_csv = trade_log_csv
@@ -176,6 +177,23 @@ class BotState:
                 sig.status = "expired"
                 del self.pending_signals[sig.signal_id]
             return expired
+
+    # ----------------------------------------------------- manual closes
+
+    def request_close(self, trade_id: str) -> bool:
+        """GUI asks the trader to close an open trade at market."""
+        with self._lock:
+            if trade_id not in self.open_trades:
+                return False
+            self._close_requests.add(trade_id)
+        self.wake_trader.set()
+        return True
+
+    def take_close_requests(self) -> list[str]:
+        with self._lock:
+            taken = list(self._close_requests)
+            self._close_requests.clear()
+            return taken
 
     def log_signal(self, symbol: str, text: str, max_keep: int = 200):
         with self._lock:

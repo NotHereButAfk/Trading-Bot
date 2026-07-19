@@ -143,6 +143,7 @@ class TradingBot:
                 expired.symbol, f"signal {expired.signal_id} expired unconfirmed"
             )
         self._execute_confirmed_signals()
+        self._execute_close_requests()
         for symbol in symbols:
             price = self.exchange.fetch_last_price(symbol)
             self._manage_open_trades(symbol, price)
@@ -261,6 +262,17 @@ class TradingBot:
             )
             self._execute_entry(sig.symbol, sig.direction, price, sig.atr,
                                 sig.score, sig.reasons)
+
+    def _execute_close_requests(self):
+        for trade_id in self.state.take_close_requests():
+            trade = self.state.open_trades.get(trade_id)
+            if trade is None:
+                continue
+            price = self.exchange.fetch_last_price(trade.symbol)
+            self.state.log_signal(
+                trade.symbol, f"manual close requested for {trade_id}"
+            )
+            self._close_trade(trade, price, "manual close")
 
     def _execute_entry(self, symbol: str, direction: str, price: float,
                        atr_value: float, score: float, reasons: list):

@@ -37,8 +37,16 @@ class MultiIndicatorStrategy:
     def evaluate(self, df: pd.DataFrame) -> Signal:
         """Evaluate the latest *closed* candle and return an entry signal."""
         data = indicators.compute_all(df, self.params)
-        row = data.iloc[-1]
-        prev = data.iloc[-2]
+        return self.evaluate_at(data, len(data) - 1)
+
+    def evaluate_at(self, data: pd.DataFrame, i: int) -> Signal:
+        """Evaluate row i of an already-indicator-annotated DataFrame.
+
+        Used by the live loop (i = last row) and the backtester, so both
+        always share identical signal logic.
+        """
+        row = data.iloc[i]
+        prev = data.iloc[i - 1]
 
         votes = {}
         reasons = []
@@ -129,7 +137,11 @@ class MultiIndicatorStrategy:
 
     def should_exit(self, df: pd.DataFrame, side: str) -> tuple[bool, str]:
         """Return (True, reason) when confluence flips against an open trade."""
-        signal = self.evaluate(df)
+        data = indicators.compute_all(df, self.params)
+        return self.should_exit_at(data, len(data) - 1, side)
+
+    def should_exit_at(self, data: pd.DataFrame, i: int, side: str) -> tuple[bool, str]:
+        signal = self.evaluate_at(data, i)
         threshold = self.cfg["exit_score"]
         if side == "long" and signal.score <= -threshold:
             return True, f"signal flipped bearish (score {signal.score})"
