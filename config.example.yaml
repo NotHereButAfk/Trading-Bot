@@ -8,6 +8,10 @@ exchange:
   # You can also set these via HTX_API_KEY / HTX_API_SECRET env vars instead.
   api_key: ""
   api_secret: ""
+  # SECOND switch required to trade real money. Live trading needs BOTH
+  # trading.paper_trading: false AND this set to true. Leave it false unless
+  # you have read GO_LIVE.md and accept the risk of real losses.
+  confirm_live: false
 
 trading:
   # USDT-margined perpetual swaps, ccxt unified symbols.

@@ -2,8 +2,11 @@
 
 import time
 
+import pytest
+
 from bot.state import BotState
-from bot.trader import TradingBot
+from bot.trader import TradingBot, LiveBroker, PositionNotFlatError
+from bot.risk import RiskManager
 from tests.conftest import FakeExchange, make_ohlcv, UPTREND
 
 
@@ -112,3 +115,74 @@ def test_confirm_skips_when_position_open(cfg):
     state.confirm_signal(sig.signal_id)
     bot._execute_confirmed_signals()
     assert len(state.open_trades) == 1  # still just one
+
+
+# --------------------------------------------------------------- live path
+
+def _live_bot(cfg, exchange=None):
+    cfg["trading"]["paper_trading"] = False
+    cfg["trading"]["confirm_signals"] = False
+    cfg["exchange"]["confirm_live"] = True
+    state = BotState()
+    bot = TradingBot(cfg, state, exchange=exchange or FakeExchange())
+    state.set_equity(10000.0)  # avoid a live balance call in these unit tests
+    return bot, state
+
+
+def test_live_entry_uses_actual_fill_and_reanchors_stops(cfg):
+    ex = FakeExchange()
+    ex.fill_slippage = 50.0  # filled 50 USDT worse than the signal price
+    bot, state = _live_bot(cfg, ex)
+    signal_price = ex.price
+    bot._execute_entry("BTC/USDT:USDT", "long", signal_price, 500.0, 3.5, ["x"])
+    assert len(state.open_trades) == 1
+    trade = next(iter(state.open_trades.values()))
+    # entry recorded at the real fill, not the pre-order price
+    assert trade.entry_price == signal_price + 50.0
+    # stop distance (risk) preserved despite the slippage
+    assert abs((trade.entry_price - trade.stop_loss) - 2.0 * 500.0) < 1e-6
+
+
+def test_live_close_verifies_flat(cfg):
+    ex = FakeExchange()
+    bot, state = _live_bot(cfg, ex)
+    bot._execute_entry("BTC/USDT:USDT", "long", ex.price, 500.0, 3.5, ["x"])
+    trade = next(iter(state.open_trades.values()))
+    ex.price = ex.price * 1.05
+    bot._close_trade(trade, ex.price, "manual close")
+    assert len(state.open_trades) == 0
+    assert state.closed_trades[-1].realized_pnl > 0  # closed in profit
+
+
+def test_live_close_that_does_not_flatten_keeps_trade_open(cfg):
+    ex = FakeExchange()
+    bot, state = _live_bot(cfg, ex)
+    bot._execute_entry("BTC/USDT:USDT", "long", ex.price, 500.0, 3.5, ["x"])
+    trade = next(iter(state.open_trades.values()))
+    ex.leave_open_on_close = True  # simulate a close order that didn't reduce
+    bot._close_trade(trade, ex.price, "manual close")
+    # Trade must stay tracked (still open and unprotected) so the bot retries.
+    assert len(state.open_trades) == 1
+    assert len(state.closed_trades) == 0
+
+
+def test_live_broker_raises_when_not_flat(cfg):
+    from bot.state import Trade
+    ex = FakeExchange()
+    ex.market_open("BTC/USDT:USDT", "long", 100, 5)
+    ex.leave_open_on_close = True
+    trade = Trade(
+        trade_id="t", symbol="BTC/USDT:USDT", side="long", base_amount=0.1,
+        contracts=100, entry_price=ex.price, stop_loss=0, take_profit=0,
+        initial_stop=0, opened_at=0.0, leverage=5, notional=0,
+    )
+    with pytest.raises(PositionNotFlatError):
+        LiveBroker().close_trade(ex, trade, ex.price)
+
+
+def test_live_skips_entry_when_exchange_has_position(cfg):
+    ex = FakeExchange()
+    ex.preexisting["BTC/USDT:USDT"] = {"side": "long", "contracts": 10}
+    bot, state = _live_bot(cfg, ex)
+    bot._execute_entry("BTC/USDT:USDT", "long", ex.price, 500.0, 3.5, ["x"])
+    assert len(state.open_trades) == 0  # refused to stack on an existing position

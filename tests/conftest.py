@@ -32,18 +32,28 @@ DOWNTREND = dict(drift=-0.0015, vol=0.0025, wave=0.0025, seed=2, phase=3.2)
 
 
 class FakeExchange:
-    """In-memory exchange: serves a fixed candle set and a settable price."""
+    """In-memory exchange: serves a fixed candle set and a settable price.
+
+    Also simulates the live-order surface (market_open/close, fill resolution,
+    position tracking) so the LiveBroker path can be tested without a network.
+    """
 
     def __init__(self, df=None, contract_size=0.001):
         self.df = df if df is not None else make_ohlcv(**UPTREND)
         self.price = float(self.df["close"].iloc[-1])
         self.contract_size = contract_size
+        # live simulation state
+        self._positions: dict[str, dict] = {}
+        self._order_seq = 0
+        self.fill_slippage = 0.0     # add to price to simulate a worse fill
+        self.leave_open_on_close = False  # simulate a close that didn't flatten
+        self.preexisting: dict[str, dict] = {}  # positions present before start
 
     def load_markets(self):
         pass
 
     def prepare_symbol(self, *args, **kwargs):
-        pass
+        return []
 
     def fetch_ohlcv(self, symbol, timeframe, limit=300):
         return self.df
@@ -51,11 +61,44 @@ class FakeExchange:
     def fetch_last_price(self, symbol):
         return self.price
 
+    def fetch_equity_usdt(self):
+        return 10000.0
+
     def amount_to_contracts(self, symbol, base_amount):
         return round(base_amount / self.contract_size, 0)
 
     def contracts_to_base(self, symbol, contracts):
         return contracts * self.contract_size
+
+    # ---- live order simulation ----
+
+    def market_open(self, symbol, side, contracts, leverage):
+        self._order_seq += 1
+        self._positions[symbol] = {
+            "side": side, "contracts": contracts,
+            "entryPrice": self.price + self.fill_slippage,
+        }
+        return {"id": f"ord-{self._order_seq}",
+                "average": self.price + self.fill_slippage,
+                "filled": contracts, "status": "closed"}
+
+    def market_close(self, symbol, side, contracts, leverage):
+        self._order_seq += 1
+        if not self.leave_open_on_close:
+            self._positions.pop(symbol, None)
+        return {"id": f"ord-{self._order_seq}",
+                "average": self.price, "filled": contracts, "status": "closed"}
+
+    def resolve_fill(self, symbol, order, fallback_price):
+        price = float(order.get("average") or fallback_price)
+        filled = float(order.get("filled") or 0.0)
+        return price, filled
+
+    def position_is_flat(self, symbol, retries=3):
+        return symbol not in self._positions
+
+    def fetch_position(self, symbol):
+        return self.preexisting.get(symbol) or self._positions.get(symbol)
 
 
 @pytest.fixture

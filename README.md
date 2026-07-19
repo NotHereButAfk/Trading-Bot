@@ -73,12 +73,23 @@ python run.py --no-gui
 
 ## Going live (when you're ready)
 
+**Read [GO_LIVE.md](GO_LIVE.md) first — it is the full, safe walkthrough.**
+The short version:
+
 1. Create an API key at HTX → **API Management**. Enable **trade** permission
-   only — never withdrawals. Restrict it to your IP if possible.
+   only — never withdrawals. Bind it to your IP if possible.
 2. Put the key in `config.yaml` (`exchange.api_key` / `api_secret`) or export
-   `HTX_API_KEY` / `HTX_API_SECRET` instead. `config.yaml` is gitignored.
-3. Set `trading.paper_trading: false`.
-4. Start small: low leverage (2–5x), `risk_per_trade_pct: 1.0` or less.
+   `HTX_API_KEY` / `HTX_API_SECRET` instead. `config.yaml` is gitignored — and
+   **never paste your key into a chat, commit or screenshot**.
+3. Flip **both** safety switches: `trading.paper_trading: false` **and**
+   `exchange.confirm_live: true`. The bot refuses to trade live unless both are
+   set (and keys are present), so you can't go live by accident.
+4. Start small: `leverage: 2`, `risk_per_trade_pct: 0.5`, `max_open_positions: 1`,
+   and keep `confirm_signals: true` so your first live trades are still your call.
+
+The live path records real fill prices, re-anchors stops to them, verifies every
+close actually flattened the position (and emails you URGENTLY if it didn't), and
+won't stack onto positions it didn't open. See GO_LIVE.md for the details.
 
 ## Email alerts
 

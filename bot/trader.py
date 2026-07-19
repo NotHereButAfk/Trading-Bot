@@ -2,6 +2,7 @@
 
 import logging
 import time
+from dataclasses import dataclass
 
 from . import indicators
 from .exchange import HTXFutures
@@ -15,6 +16,17 @@ log = logging.getLogger("bot.trader")
 TAKER_FEE = 0.0005  # HTX linear swap taker fee (0.05%)
 
 
+class PositionNotFlatError(Exception):
+    """Raised when a close order did not actually flatten the position."""
+
+
+@dataclass
+class Fill:
+    price: float       # actual average fill price
+    contracts: float   # contracts actually filled
+    base: float        # filled size in base asset
+
+
 class PaperBroker:
     """Simulates fills at market price so strategies can run risk-free."""
 
@@ -25,41 +37,53 @@ class PaperBroker:
         unrealized = sum(t.unrealized_pnl for t in state.open_trades.values())
         return self.balance + unrealized
 
-    def open_trade(self, exchange: HTXFutures, symbol: str, plan: TradePlan, leverage: int) -> tuple[float, float]:
+    def open_trade(self, exchange: HTXFutures, symbol: str, plan: TradePlan, leverage: int) -> Fill:
         contracts = exchange.amount_to_contracts(symbol, plan.base_amount)
         base = exchange.contracts_to_base(symbol, contracts)
         fee = base * plan.entry_price * TAKER_FEE
         self.balance -= fee
-        return contracts, base
+        return Fill(price=plan.entry_price, contracts=contracts, base=base)
 
-    def close_trade(self, exchange: HTXFutures, trade: Trade, exit_price: float) -> float:
+    def close_trade(self, exchange: HTXFutures, trade: Trade, exit_price: float) -> tuple[float, float]:
         direction = 1.0 if trade.side == "long" else -1.0
         gross = direction * (exit_price - trade.entry_price) * trade.base_amount
         fee = trade.base_amount * exit_price * TAKER_FEE
         pnl = gross - fee
         self.balance += pnl
-        return pnl
+        return pnl, exit_price
 
 
 class LiveBroker:
     """Routes orders to HTX for real."""
 
-    def open_trade(self, exchange: HTXFutures, symbol: str, plan: TradePlan, leverage: int) -> tuple[float, float]:
+    def open_trade(self, exchange: HTXFutures, symbol: str, plan: TradePlan, leverage: int) -> Fill:
         contracts = exchange.amount_to_contracts(symbol, plan.base_amount)
         if contracts <= 0:
             raise ValueError(
                 f"position size {plan.base_amount} too small for {symbol} contract size"
             )
-        exchange.market_open(symbol, plan.side, contracts, leverage)
-        base = exchange.contracts_to_base(symbol, contracts)
-        return contracts, base
+        order = exchange.market_open(symbol, plan.side, contracts, leverage)
+        # Record the *actual* fill, not the pre-order ticker price, so the
+        # stop/target are anchored where the position really opened.
+        fill_price, filled = exchange.resolve_fill(symbol, order, plan.entry_price)
+        if filled <= 0:
+            filled = contracts  # exchange gave no count; trust the requested size
+        base = exchange.contracts_to_base(symbol, filled)
+        return Fill(price=fill_price, contracts=filled, base=base)
 
-    def close_trade(self, exchange: HTXFutures, trade: Trade, exit_price: float) -> float:
-        exchange.market_close(trade.symbol, trade.side, trade.contracts, trade.leverage)
+    def close_trade(self, exchange: HTXFutures, trade: Trade, exit_price: float) -> tuple[float, float]:
+        order = exchange.market_close(trade.symbol, trade.side, trade.contracts, trade.leverage)
+        fill_price, _ = exchange.resolve_fill(trade.symbol, order, exit_price)
+        # Never report a close as done until the exchange confirms we are flat.
+        if not exchange.position_is_flat(trade.symbol):
+            raise PositionNotFlatError(
+                f"{trade.symbol} still shows an open position after close order "
+                f"{order.get('id')} — check the exchange immediately"
+            )
         direction = 1.0 if trade.side == "long" else -1.0
-        gross = direction * (exit_price - trade.entry_price) * trade.base_amount
-        fee = trade.base_amount * exit_price * TAKER_FEE
-        return gross - fee
+        gross = direction * (fill_price - trade.entry_price) * trade.base_amount
+        fee = trade.base_amount * fill_price * TAKER_FEE
+        return gross - fee, fill_price
 
     def equity(self, exchange: HTXFutures) -> float:
         return exchange.fetch_equity_usdt()
@@ -94,10 +118,7 @@ class TradingBot:
         try:
             self.exchange.load_markets()
             if not self.paper:
-                for symbol in symbols:
-                    self.exchange.prepare_symbol(
-                        symbol, self.trading["leverage"], self.trading["margin_mode"]
-                    )
+                self._live_preflight(symbols)
             equity = self._equity()
             self.state.set_equity(equity)
         except Exception as exc:
@@ -133,6 +154,36 @@ class TradingBot:
     def stop(self):
         self.state.stop_requested.set()
         self.state.wake_trader.set()
+
+    def _live_preflight(self, symbols: list):
+        """Real-money startup checks: confirm leverage/margin took effect and
+        warn about positions the bot isn't tracking."""
+        for symbol in symbols:
+            warnings = self.exchange.prepare_symbol(
+                symbol, self.trading["leverage"], self.trading["margin_mode"]
+            )
+            for warning in warnings:
+                log.warning(warning)
+                self.state.log_signal(symbol, f"SETUP WARNING: {warning}")
+                self.notifier.notify_error(f"Live setup warning: {warning}")
+
+        for symbol in symbols:
+            try:
+                existing = self.exchange.fetch_position(symbol)
+            except Exception as exc:
+                log.warning("could not check existing position for %s: %s", symbol, exc)
+                continue
+            if existing is not None:
+                contracts = existing.get("contracts")
+                side = existing.get("side")
+                msg = (
+                    f"{symbol}: an open {side} position ({contracts} contracts) already "
+                    "exists on HTX. The bot will NOT manage or close it and will skip "
+                    "new entries on this symbol until it is gone."
+                )
+                log.warning(msg)
+                self.state.log_signal(symbol, f"PRE-EXISTING POSITION: {msg}")
+                self.notifier.notify_error(msg)
 
     # ----------------------------------------------------------------- tick
 
@@ -282,9 +333,21 @@ class TradingBot:
             log.info("%s: no valid trade plan (equity %.2f)", symbol, equity)
             return
 
+        # For real money, never stack onto a position the exchange already
+        # holds (e.g. one opened manually or left over from a previous run).
+        if not self.paper:
+            try:
+                if self.exchange.fetch_position(symbol) is not None:
+                    msg = f"{symbol}: exchange already has an open position, skipping entry"
+                    log.warning(msg)
+                    self.state.log_signal(symbol, msg)
+                    return
+            except Exception as exc:
+                log.warning("could not verify existing position for %s: %s", symbol, exc)
+
         broker = self.paper_broker if self.paper else self.live_broker
         try:
-            contracts, base = broker.open_trade(
+            fill = broker.open_trade(
                 self.exchange, symbol, plan, self.trading["leverage"]
             )
         except Exception as exc:
@@ -293,42 +356,59 @@ class TradingBot:
             self.notifier.notify_error(f"Failed to open {plan.side} {symbol}: {exc}")
             return
 
+        # Re-anchor the stop and target to the real fill so the risk *distance*
+        # is preserved even if the market moved between signal and fill.
+        slippage = fill.price - plan.entry_price
+        stop_loss = plan.stop_loss + slippage
+        take_profit = plan.take_profit + slippage
+
         trade = Trade(
             trade_id=self.state.next_trade_id(symbol),
             symbol=symbol,
             side=plan.side,
-            base_amount=base,
-            contracts=contracts,
-            entry_price=price,
-            stop_loss=plan.stop_loss,
-            take_profit=plan.take_profit,
-            initial_stop=plan.stop_loss,
+            base_amount=fill.base,
+            contracts=fill.contracts,
+            entry_price=fill.price,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+            initial_stop=stop_loss,
             opened_at=time.time(),
             leverage=self.trading["leverage"],
-            notional=base * price,
+            notional=fill.base * fill.price,
         )
-        trade.update_mark(price)
+        trade.update_mark(fill.price)
         self.state.add_trade(trade)
         self.state.log_signal(
-            symbol, f"OPENED {plan.side} @ {price:.6g} (score {score:+.1f})"
+            symbol, f"OPENED {plan.side} @ {fill.price:.6g} (score {score:+.1f})"
         )
         self.notifier.notify_open(trade, score, reasons)
-        log.info("opened %s %s @ %.6g sl %.6g tp %.6g", plan.side, symbol, price,
-                 plan.stop_loss, plan.take_profit)
+        log.info("opened %s %s @ %.6g sl %.6g tp %.6g", plan.side, symbol, fill.price,
+                 stop_loss, take_profit)
 
     def _close_trade(self, trade: Trade, price: float, reason: str):
         broker = self.paper_broker if self.paper else self.live_broker
         try:
-            pnl = broker.close_trade(self.exchange, trade, price)
+            pnl, exit_price = broker.close_trade(self.exchange, trade, price)
+        except PositionNotFlatError as exc:
+            # The trade is still open and unprotected — keep it in state so the
+            # bot retries the close next tick, and shout about it.
+            log.critical("close did not flatten %s: %s", trade.trade_id, exc)
+            self.state.log_signal(trade.symbol, f"CLOSE INCOMPLETE — STILL OPEN: {exc}")
+            self.notifier.notify_error(
+                f"URGENT: {trade.trade_id} did not close — position may still be "
+                f"open on HTX. {exc}"
+            )
+            return
         except Exception as exc:
             log.exception("failed to close %s", trade.trade_id)
             self.state.log_signal(trade.symbol, f"CLOSE FAILED: {exc}")
             self.notifier.notify_error(f"Failed to close {trade.trade_id}: {exc}")
             return
-        closed = self.state.close_trade(trade.trade_id, price, pnl, reason)
+        closed = self.state.close_trade(trade.trade_id, exit_price, pnl, reason)
         if closed:
             self.state.log_signal(
-                trade.symbol, f"CLOSED {trade.side} @ {price:.6g} pnl {pnl:+.2f} ({reason})"
+                trade.symbol,
+                f"CLOSED {trade.side} @ {exit_price:.6g} pnl {pnl:+.2f} ({reason})",
             )
             self.notifier.notify_close(closed)
         self._cooldown_until[trade.symbol] = (

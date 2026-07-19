@@ -10,6 +10,10 @@ DEFAULTS = {
         "api_key": "",
         "api_secret": "",
         "testnet": False,
+        # Deliberate second switch. Live trading requires BOTH
+        # trading.paper_trading: false AND exchange.confirm_live: true, so you
+        # can never start risking real money by flipping a single flag.
+        "confirm_live": False,
     },
     "trading": {
         "symbols": ["BTC/USDT:USDT", "ETH/USDT:USDT"],
@@ -133,6 +137,12 @@ def validate_config(cfg: dict) -> None:
             raise ValueError(
                 "Live trading requires exchange.api_key and exchange.api_secret "
                 "(or HTX_API_KEY / HTX_API_SECRET env vars)"
+            )
+        if not cfg["exchange"].get("confirm_live"):
+            raise ValueError(
+                "Live trading is gated: set exchange.confirm_live: true in your "
+                "config to acknowledge you are trading REAL money with real risk. "
+                "(Keep trading.paper_trading: true to stay in simulation.)"
             )
     risk = cfg["risk"]
     if not 0 < risk["risk_per_trade_pct"] <= 10:

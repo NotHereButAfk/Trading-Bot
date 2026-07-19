@@ -1,6 +1,7 @@
 """HTX (former Huobi) USDT-margined perpetual futures connection via ccxt."""
 
 import logging
+import time
 
 import ccxt
 import pandas as pd
@@ -58,17 +59,32 @@ class HTXFutures:
             total = free + used
         return float(total or 0.0)
 
-    def prepare_symbol(self, symbol: str, leverage: int, margin_mode: str):
-        """Set margin mode and leverage; HTX rejects no-op changes, ignore those."""
+    def prepare_symbol(self, symbol: str, leverage: int, margin_mode: str) -> list:
+        """Set margin mode and leverage.
+
+        HTX rejects a no-op margin/leverage change with an error even though
+        nothing is wrong, so those specific "unchanged" errors are downgraded
+        to debug. Any *other* failure is returned as a warning string so the
+        caller can surface it — on real money, silently trading at the wrong
+        leverage is exactly the kind of thing you want shouted about.
+        """
         self.load_markets()
+        warnings = []
         try:
             self.client.set_margin_mode(margin_mode, symbol, {"leverage": leverage})
-        except Exception as exc:  # already set / not required on this account
-            log.debug("set_margin_mode(%s): %s", symbol, exc)
+        except Exception as exc:
+            if _is_benign_setup_error(exc):
+                log.debug("set_margin_mode(%s): %s", symbol, exc)
+            else:
+                warnings.append(f"could not set {margin_mode} margin on {symbol}: {exc}")
         try:
             self.client.set_leverage(leverage, symbol)
         except Exception as exc:
-            log.debug("set_leverage(%s): %s", symbol, exc)
+            if _is_benign_setup_error(exc):
+                log.debug("set_leverage(%s): %s", symbol, exc)
+            else:
+                warnings.append(f"could not set {leverage}x leverage on {symbol}: {exc}")
+        return warnings
 
     # ---------------------------------------------------------------- orders
 
@@ -101,9 +117,62 @@ class HTXFutures:
         log.info("closed %s %s x%s contracts: order %s", side, symbol, contracts, order.get("id"))
         return order
 
+    def resolve_fill(self, symbol: str, order: dict, fallback_price: float) -> tuple[float, float]:
+        """Return the (average_fill_price, filled_contracts) of a market order.
+
+        The create response may not carry fill details yet, so poll fetch_order
+        briefly until the order is closed. Falls back to the pre-order ticker
+        price only if the exchange never reports an average — better an
+        approximate stop than none.
+        """
+        order_id = order.get("id")
+        avg = order.get("average")
+        filled = order.get("filled")
+        for _ in range(5):
+            if avg and filled:
+                break
+            if not order_id:
+                break
+            try:
+                fetched = self.client.fetch_order(order_id, symbol)
+            except Exception as exc:
+                log.warning("fetch_order(%s) failed: %s", order_id, exc)
+                break
+            avg = fetched.get("average") or avg
+            filled = fetched.get("filled") or filled
+            if fetched.get("status") == "closed" and avg and filled:
+                break
+            time.sleep(0.4)
+        price = float(avg) if avg else float(fallback_price)
+        contracts = float(filled) if filled else 0.0
+        return price, contracts
+
     def fetch_position(self, symbol: str) -> dict | None:
         positions = self.client.fetch_positions([symbol])
         for pos in positions:
             if pos.get("contracts") and float(pos["contracts"]) > 0:
                 return pos
         return None
+
+    def position_is_flat(self, symbol: str, retries: int = 3) -> bool:
+        """True once the exchange reports no open position for `symbol`.
+
+        Retried because a close fill can take a moment to propagate to the
+        positions endpoint; a false 'still open' here would wrongly alarm.
+        """
+        for attempt in range(retries):
+            try:
+                if self.fetch_position(symbol) is None:
+                    return True
+            except Exception as exc:
+                log.warning("position check for %s failed: %s", symbol, exc)
+            if attempt < retries - 1:
+                time.sleep(1.0)
+        return False
+
+
+def _is_benign_setup_error(exc: Exception) -> bool:
+    """HTX raises on setting margin/leverage to what it already is."""
+    text = str(exc).lower()
+    benign = ("not modified", "no change", "already", "repeat", "1051", "1050")
+    return any(token in text for token in benign)
