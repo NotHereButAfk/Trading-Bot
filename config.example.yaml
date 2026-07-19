@@ -5,7 +5,12 @@
 exchange:
   # Create API keys at https://www.htx.com/ -> API Management.
   # Only enable "Trade" permission. NEVER enable withdrawals for a bot key.
-  # You can also set these via HTX_API_KEY / HTX_API_SECRET env vars instead.
+  #
+  # THREE ways to provide your key (later overrides earlier):
+  #   1. here in this file, or
+  #   2. the in-app "Settings / API Key" button (saves to credentials.json), or
+  #   3. HTX_API_KEY / HTX_API_SECRET environment variables.
+  # The GUI Settings screen is the easiest — you never have to edit this file.
   api_key: ""
   api_secret: ""
   # SECOND switch required to trade real money. Live trading needs BOTH

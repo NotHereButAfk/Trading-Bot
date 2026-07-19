@@ -28,15 +28,17 @@ Do **not** paste it into a chat window, a commit, a screenshot, or an issue.
 5. Copy the **Access Key** (api key) and **Secret Key**. The secret is shown
    only once.
 
-## Step 2 — Put the key into your config (not the chat)
+## Step 2 — Enter the key (three ways, pick one)
 
-If you don't have a `config.yaml` yet:
+**(a) Easiest — in the app.** Start the bot (`python run.py` or `run_bot.bat`),
+click **⚙ Settings / API Key** in the top bar, paste your Access Key and Secret
+Key, and press **Save**. It's stored locally in `credentials.json` (owner-only,
+gitignored) — you never touch a config file. You can also tick **Trade with REAL
+money (LIVE)** right there to enable live trading, and use **Test connection** to
+check the key works. Changes apply when you restart the bot.
 
-```bash
-cp config.example.yaml config.yaml
-```
-
-Then either **(a)** edit `config.yaml`:
+**(b) In `config.yaml`.** If you don't have one yet, `cp config.example.yaml
+config.yaml`, then:
 
 ```yaml
 exchange:
@@ -45,13 +47,15 @@ exchange:
   confirm_live: false          # leave false for now
 ```
 
-or **(b)** — cleaner — leave the config blank and export environment variables,
-so the key never touches a file:
+**(c) Environment variables** (the key never touches a file):
 
 ```bash
 export HTX_API_KEY="YOUR_ACCESS_KEY"
 export HTX_API_SECRET="YOUR_SECRET_KEY"
 ```
+
+If more than one is set, the order of precedence is: env vars > the in-app
+`credentials.json` > `config.yaml`.
 
 ### Verify the key works while STILL in paper mode
 
@@ -64,10 +68,13 @@ python backtest.py --symbol "BTC/USDT:USDT" --timeframe 15m --candles 500
 
 If that connects and prints results, your network and (public) API access work.
 
-## Step 3 — Flip the two live switches
+## Step 3 — Turn on live trading
 
-Live trading is intentionally gated behind **two** flags so you can't start it
-by accident. In `config.yaml`:
+The quickest way is the **⚙ Settings** screen from Step 2: tick **Trade with
+REAL money (LIVE)**, Save, and restart. That sets both required switches for you.
+
+If you prefer the config file, live trading is gated behind **two** flags so you
+can't start it by accident:
 
 ```yaml
 trading:

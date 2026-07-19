@@ -6,8 +6,9 @@ polls BotState.snapshot() on a timer, so no Tk calls ever cross threads.
 
 import time
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 
+from . import config as bot_config
 from .state import BotState
 
 BG = "#12141a"
@@ -17,13 +18,21 @@ DIM = "#8a8f9e"
 GREEN = "#2ecc71"
 RED = "#e74c3c"
 ACCENT = "#3498db"
+AMBER = "#c9a227"
 
 
 class Dashboard:
-    def __init__(self, state: BotState, refresh_ms: int = 2000, on_close=None):
+    def __init__(self, state: BotState, refresh_ms: int = 2000, on_close=None,
+                 cfg: dict | None = None, test_connection=None):
         self.state = state
         self.refresh_ms = refresh_ms
         self.on_close = on_close
+        self.cfg = cfg or {}
+        # Optional callback: (api_key, api_secret) -> (ok: bool, message: str)
+        self.test_connection = test_connection
+        self._credentials_path = (
+            bot_config.credentials_path(self.cfg) if self.cfg else "credentials.json"
+        )
 
         self.root = tk.Tk()
         self.root.title("HTX Futures Bot — Control Panel")
@@ -60,6 +69,10 @@ class Dashboard:
 
         tk.Label(header, textvariable=self.mode_var, bg=BG, fg=ACCENT,
                  font=("TkDefaultFont", 14, "bold")).pack(side="left")
+        tk.Button(header, text="⚙ Settings / API Key",
+                  command=self._open_settings,
+                  bg="#232734", fg=FG, activebackground=ACCENT, activeforeground=BG,
+                  relief="flat", padx=12, pady=2).pack(side="left", padx=16)
         self.pnl_label = tk.Label(header, textvariable=self.pnl_var, bg=BG, fg=FG,
                                   font=("TkDefaultFont", 13, "bold"))
         self.pnl_label.pack(side="right")
@@ -270,6 +283,169 @@ class Dashboard:
             stamp = time.strftime("%H:%M:%S", time.gmtime(event.timestamp))
             self.log_text.insert("end", f"{stamp}  {event.symbol:<14} {event.text}\n")
         self.log_text.configure(state="disabled")
+
+    # ------------------------------------------------------- settings dialog
+
+    def _open_settings(self):
+        saved = bot_config.load_credentials_file(self._credentials_path)
+        has_key = bool(saved.get("api_key")) or bool(self.cfg.get("exchange", {}).get("api_key"))
+        has_secret = bool(saved.get("api_secret")) or bool(
+            self.cfg.get("exchange", {}).get("api_secret")
+        )
+        live_now = not self.cfg.get("trading", {}).get("paper_trading", True)
+
+        win = tk.Toplevel(self.root)
+        win.title("API Key & Live Trading")
+        win.configure(bg=BG)
+        win.geometry("560x520")
+        win.transient(self.root)
+        win.grab_set()  # modal
+
+        def label(text, **kw):
+            tk.Label(win, text=text, bg=BG, fg=kw.pop("fg", FG), anchor="w",
+                     justify="left", **kw).pack(fill="x", padx=18, **kw.pop("pack", {}))
+
+        tk.Label(win, text="HTX API credentials", bg=BG, fg=ACCENT,
+                 font=("TkDefaultFont", 13, "bold"), anchor="w").pack(
+            fill="x", padx=18, pady=(16, 2))
+        tk.Label(
+            win,
+            text=("Stored locally in " + self._credentials_path + " (owner-only, "
+                  "gitignored). Your key never leaves this computer — never share it."),
+            bg=BG, fg=DIM, anchor="w", justify="left", wraplength=520,
+        ).pack(fill="x", padx=18, pady=(0, 10))
+
+        # --- API key ---
+        tk.Label(win, text="API Key (Access Key)", bg=BG, fg=FG, anchor="w").pack(
+            fill="x", padx=18)
+        key_var = tk.StringVar()
+        key_entry = tk.Entry(win, textvariable=key_var, bg=PANEL, fg=FG,
+                             insertbackground=FG, relief="flat", show="•")
+        key_entry.pack(fill="x", padx=18, pady=(2, 2), ipady=4)
+
+        # --- API secret ---
+        tk.Label(win, text="API Secret (Secret Key)", bg=BG, fg=FG, anchor="w").pack(
+            fill="x", padx=18, pady=(8, 0))
+        secret_var = tk.StringVar()
+        secret_entry = tk.Entry(win, textvariable=secret_var, bg=PANEL, fg=FG,
+                                insertbackground=FG, relief="flat", show="•")
+        secret_entry.pack(fill="x", padx=18, pady=(2, 2), ipady=4)
+
+        if has_key or has_secret:
+            tk.Label(win, text="A key is already saved — leave a field blank to keep it.",
+                     bg=BG, fg=DIM, anchor="w").pack(fill="x", padx=18, pady=(2, 0))
+
+        show_var = tk.BooleanVar(value=False)
+
+        def toggle_show():
+            char = "" if show_var.get() else "•"
+            key_entry.configure(show=char)
+            secret_entry.configure(show=char)
+
+        tk.Checkbutton(win, text="Show characters", variable=show_var,
+                       command=toggle_show, bg=BG, fg=DIM, selectcolor=PANEL,
+                       activebackground=BG, activeforeground=FG,
+                       anchor="w").pack(fill="x", padx=16, pady=(4, 8))
+
+        # --- live toggle ---
+        live_var = tk.BooleanVar(value=live_now)
+        tk.Checkbutton(
+            win, text="Trade with REAL money (LIVE) — I accept the risk",
+            variable=live_var, bg=BG, fg=RED, selectcolor=PANEL,
+            activebackground=BG, activeforeground=RED, anchor="w",
+            font=("TkDefaultFont", 11, "bold"),
+        ).pack(fill="x", padx=16, pady=(0, 2))
+        tk.Label(
+            win,
+            text=("Unchecked = paper trading (simulated, safe). Checked = the bot "
+                  "will place real orders on HTX with your funds. Changes apply on "
+                  "the next start of the bot."),
+            bg=BG, fg=DIM, anchor="w", justify="left", wraplength=520,
+        ).pack(fill="x", padx=18, pady=(0, 8))
+
+        status_var = tk.StringVar(value="")
+        tk.Label(win, textvariable=status_var, bg=BG, fg=AMBER, anchor="w",
+                 justify="left", wraplength=520).pack(fill="x", padx=18)
+
+        # --- buttons ---
+        btns = tk.Frame(win, bg=BG)
+        btns.pack(fill="x", padx=18, pady=14, side="bottom")
+
+        def do_test():
+            if self.test_connection is None:
+                status_var.set("Connection test isn't available in this build.")
+                return
+            api_key = key_var.get().strip() or saved.get("api_key") or \
+                self.cfg.get("exchange", {}).get("api_key", "")
+            api_secret = secret_var.get().strip() or saved.get("api_secret") or \
+                self.cfg.get("exchange", {}).get("api_secret", "")
+            if not api_key or not api_secret:
+                status_var.set("Enter both key and secret first.")
+                return
+            status_var.set("Testing connection to HTX…")
+            win.update_idletasks()
+            try:
+                ok, message = self.test_connection(api_key, api_secret)
+            except Exception as exc:  # network / library error
+                ok, message = False, str(exc)
+            status_var.set(("✓ " if ok else "✗ ") + message)
+
+        def do_save():
+            api_key = key_var.get().strip()
+            api_secret = secret_var.get().strip()
+            go_live = live_var.get()
+            # Guard: don't let someone enable live with no key anywhere.
+            if go_live and not (api_key or has_key):
+                messagebox.showerror(
+                    "API key required",
+                    "Enter your API key before enabling live trading.",
+                    parent=win,
+                )
+                return
+            if go_live and not (api_secret or has_secret):
+                messagebox.showerror(
+                    "API secret required",
+                    "Enter your API secret before enabling live trading.",
+                    parent=win,
+                )
+                return
+            if go_live and not messagebox.askyesno(
+                "Confirm LIVE trading",
+                "This will let the bot place REAL orders with REAL money on your "
+                "next start. Are you sure?",
+                parent=win,
+            ):
+                return
+            updates = {
+                "api_key": api_key,
+                "api_secret": api_secret,
+                "paper_trading": not go_live,
+                "confirm_live": bool(go_live),
+            }
+            try:
+                bot_config.save_credentials(self._credentials_path, updates)
+            except OSError as exc:
+                messagebox.showerror("Could not save", str(exc), parent=win)
+                return
+            self.state.log_signal("*", "credentials updated from Settings (applies on restart)")
+            messagebox.showinfo(
+                "Saved",
+                "Saved to " + self._credentials_path + ".\n\n"
+                + ("LIVE trading is now ENABLED. " if go_live else "Paper mode. ")
+                + "Restart the bot for the change to take effect.",
+                parent=win,
+            )
+            win.destroy()
+
+        tk.Button(btns, text="Cancel", command=win.destroy, bg="#232734", fg=FG,
+                  relief="flat", padx=14, pady=4).pack(side="right")
+        tk.Button(btns, text="Save", command=do_save, bg="#1e5c3a", fg=FG,
+                  activebackground=GREEN, activeforeground=BG, relief="flat",
+                  padx=18, pady=4).pack(side="right", padx=8)
+        tk.Button(btns, text="Test connection", command=do_test, bg="#232734", fg=FG,
+                  relief="flat", padx=14, pady=4).pack(side="left")
+
+        key_entry.focus_set()
 
     # ------------------------------------------------------------------ run
 

@@ -1,5 +1,6 @@
-# Secrets — never commit your real config
+# Secrets — never commit your real config or saved API keys
 config.yaml
+credentials.json
 
 # Runtime output
 trades.csv

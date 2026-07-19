@@ -57,11 +57,16 @@ If Windows SmartScreen warns about a `.bat`, click **More info ▸ Run anyway**
 
 ## 4. Configure the bot
 
-Open **`config.yaml`** in Notepad and set it up. **Start in paper mode** — it is
-the default. To eventually trade real money, follow **[GO_LIVE.md](GO_LIVE.md)**;
-in short you must set both `paper_trading: false` and `confirm_live: true` and
-add your HTX API key. **Never paste your API key anywhere but this file** (it is
-gitignored and stays on your PC).
+**Start in paper mode** — it is the default, so you can just run the bot first
+and configure it from inside the app.
+
+To add your HTX API key, the easiest way is **in the app**: start the bot, click
+**⚙ Settings / API Key** in the top bar, paste your key and secret, and Save.
+It's stored locally in `credentials.json` (gitignored, owner-only) — you never
+have to edit a file. You can also edit `config.yaml` in Notepad if you prefer.
+Either way, **never paste your key into a chat or share it**. To trade real
+money, follow **[GO_LIVE.md](GO_LIVE.md)** (tick the LIVE box in Settings, or set
+`paper_trading: false` + `confirm_live: true`).
 
 For **unattended 24/7** operation, decide how entries happen:
 

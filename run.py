@@ -27,6 +27,23 @@ from bot.trader import TradingBot
 CONFIG_ERROR = 2
 
 
+def _make_connection_tester(cfg: dict):
+    """Return a function the GUI can call to verify API keys against HTX."""
+    import copy
+
+    def test(api_key: str, api_secret: str):
+        from bot.exchange import HTXFutures
+        probe_cfg = copy.deepcopy(cfg)
+        probe_cfg["exchange"]["api_key"] = api_key
+        probe_cfg["exchange"]["api_secret"] = api_secret
+        exchange = HTXFutures(probe_cfg)
+        exchange.load_markets()
+        equity = exchange.fetch_equity_usdt()  # needs valid auth
+        return True, f"Connected. USDT balance: {equity:.2f}"
+
+    return test
+
+
 def _setup_logging(level_name: str, log_file: str | None):
     level = getattr(logging, level_name.upper(), logging.INFO)
     handlers = [logging.StreamHandler()]
@@ -88,7 +105,8 @@ def main() -> int:
             use_gui = False
         else:
             dashboard = Dashboard(
-                state, refresh_ms=cfg["gui"]["refresh_ms"], on_close=bot.stop
+                state, refresh_ms=cfg["gui"]["refresh_ms"], on_close=bot.stop,
+                cfg=cfg, test_connection=_make_connection_tester(cfg),
             )
             dashboard.run()
             bot.stop()

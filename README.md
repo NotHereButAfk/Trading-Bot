@@ -35,10 +35,11 @@ until you press **Confirm**.
 - **Email alerts** on bot start, signal fired (so you know to go confirm it),
   trade open (with entry, stop, target and the signal reasons) and trade close
   (with realized PnL)
-- **GUI control panel** (Tkinter) — pending signals with Confirm/Dismiss,
-  equity, session PnL, open trades with live unrealized PnL and a
-  **Close position** button to exit any trade manually, closed-trade
-  history and the signal log
+- **GUI control panel** (Tkinter) — enter your API key in-app via the
+  **⚙ Settings** screen (no file editing; stored locally, gitignored), pending
+  signals with Confirm/Dismiss, equity, session PnL, open trades with live
+  unrealized PnL and a **Close position** button to exit any trade manually,
+  closed-trade history and the signal log
 - **Backtester** — replay the exact strategy over historical HTX candles and
   get win rate, net PnL, profit factor, max drawdown and a per-trade breakdown
   before risking real money

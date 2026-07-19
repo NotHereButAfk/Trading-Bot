@@ -1,7 +1,9 @@
 """Configuration loading and validation."""
 
 import copy
+import json
 import os
+import stat
 
 import yaml
 
@@ -14,6 +16,10 @@ DEFAULTS = {
         # trading.paper_trading: false AND exchange.confirm_live: true, so you
         # can never start risking real money by flipping a single flag.
         "confirm_live": False,
+        # Local file the in-app Settings screen writes your API key to. It is
+        # gitignored and never committed. Keys here override config.yaml; env
+        # vars (HTX_API_KEY / HTX_API_SECRET) still override everything.
+        "credentials_file": "credentials.json",
     },
     "trading": {
         "symbols": ["BTC/USDT:USDT", "ETH/USDT:USDT"],
@@ -102,14 +108,21 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
 
 def load_config(path: str) -> dict:
-    """Load YAML config, merge over defaults, resolve env-var credentials."""
+    """Load YAML config, overlay the local credentials file, then env vars.
+
+    Precedence (later wins): DEFAULTS < config.yaml < credentials.json < env.
+    The credentials file is what the in-app Settings screen writes to, so keys
+    entered through the software take effect on the next start.
+    """
     user_cfg = {}
     if path and os.path.exists(path):
         with open(path, "r", encoding="utf-8") as fh:
             user_cfg = yaml.safe_load(fh) or {}
     cfg = _deep_merge(DEFAULTS, user_cfg)
 
-    # Environment variables win over the file so secrets can stay out of it.
+    _apply_credentials_file(cfg)
+
+    # Environment variables win over everything so secrets can stay out of files.
     env_map = {
         ("exchange", "api_key"): "HTX_API_KEY",
         ("exchange", "api_secret"): "HTX_API_SECRET",
@@ -122,6 +135,58 @@ def load_config(path: str) -> dict:
 
     validate_config(cfg)
     return cfg
+
+
+# Fields the Settings screen is allowed to persist, mapped to (section, key).
+_CREDENTIAL_FIELDS = {
+    "api_key": ("exchange", "api_key"),
+    "api_secret": ("exchange", "api_secret"),
+    "confirm_live": ("exchange", "confirm_live"),
+    "paper_trading": ("trading", "paper_trading"),
+}
+
+
+def credentials_path(cfg: dict) -> str:
+    return cfg["exchange"].get("credentials_file") or "credentials.json"
+
+
+def load_credentials_file(path: str) -> dict:
+    """Return the saved credentials dict, or {} if the file is missing/unreadable."""
+    if not path or not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _apply_credentials_file(cfg: dict) -> None:
+    data = load_credentials_file(credentials_path(cfg))
+    for field, (section, key) in _CREDENTIAL_FIELDS.items():
+        if field in data and data[field] not in (None, ""):
+            cfg[section][key] = data[field]
+
+
+def save_credentials(path: str, updates: dict) -> None:
+    """Merge `updates` into the credentials file and write it back with
+    owner-only permissions. Only whitelisted fields are stored; blank values
+    are ignored so leaving a field empty keeps the previously saved one."""
+    data = load_credentials_file(path)
+    for field, value in updates.items():
+        if field not in _CREDENTIAL_FIELDS:
+            continue
+        if isinstance(value, str) and value == "":
+            continue  # blank -> keep existing
+        data[field] = value
+    # Write, then tighten permissions to rw for the owner only (best effort).
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2)
+    try:
+        os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+    except OSError:
+        pass
 
 
 def validate_config(cfg: dict) -> None:
