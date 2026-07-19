@@ -1,0 +1,85 @@
+# HTX futures trading bot configuration.
+# Copy this file to config.yaml and fill in your own values.
+# config.yaml is gitignored so your keys never end up in the repo.
+
+exchange:
+  # Create API keys at https://www.htx.com/ -> API Management.
+  # Only enable "Trade" permission. NEVER enable withdrawals for a bot key.
+  # You can also set these via HTX_API_KEY / HTX_API_SECRET env vars instead.
+  api_key: ""
+  api_secret: ""
+
+trading:
+  # USDT-margined perpetual swaps, ccxt unified symbols.
+  symbols:
+    - "BTC/USDT:USDT"
+    - "ETH/USDT:USDT"
+  timeframe: "15m"          # 1m, 5m, 15m, 30m, 1h, 4h, 1d
+  leverage: 5
+  margin_mode: "isolated"   # isolated | cross
+  paper_trading: true       # KEEP true until you trust the strategy
+  paper_starting_balance: 10000.0
+  poll_interval_sec: 15     # price/exit checks between candles
+  candle_history: 300
+  max_open_positions: 3
+  cooldown_minutes: 30      # wait after closing before re-entering a symbol
+
+risk:
+  risk_per_trade_pct: 1.0        # % of equity lost if the stop is hit
+  atr_stop_multiplier: 2.0       # stop distance = 2 x ATR
+  take_profit_rr: 2.0            # take profit at 2R
+  trailing_stop: true
+  trailing_atr_multiplier: 2.5
+  breakeven_at_rr: 1.0           # move stop to entry after +1R
+  max_notional_pct_of_equity: 95.0
+  max_daily_loss_pct: 5.0        # halt new entries after losing this much in a day
+
+strategy:
+  entry_score: 3.0     # confluence needed to enter (max 5 with default weights)
+  exit_score: 1.5      # opposite score that closes an open trade early
+  adx_min: 20.0        # skip entries when the market is trendless
+  volume_filter: true
+  volume_factor: 1.1   # candle volume must be >= 1.1 x 20-period average
+  weights:
+    ema: 1.0
+    macd: 1.0
+    rsi: 1.0
+    bollinger: 1.0
+    stochastic: 1.0
+  indicators:
+    ema_fast: 9
+    ema_slow: 21
+    rsi_period: 14
+    rsi_overbought: 70.0
+    rsi_oversold: 30.0
+    macd_fast: 12
+    macd_slow: 26
+    macd_signal: 9
+    bb_period: 20
+    bb_std: 2.0
+    stoch_k: 14
+    stoch_d: 3
+    stoch_smooth: 3
+    atr_period: 14
+    adx_period: 14
+    volume_ma: 20
+
+email:
+  enabled: false            # set true and fill in SMTP details to get alerts
+  smtp_host: "smtp.gmail.com"
+  smtp_port: 587
+  # For Gmail: enable 2FA, then create an App Password and use it here.
+  # Can also be set via BOT_SMTP_USER / BOT_SMTP_PASSWORD env vars.
+  smtp_user: "you@gmail.com"
+  smtp_password: ""
+  from_addr: "you@gmail.com"
+  to_addrs:
+    - "you@gmail.com"
+
+gui:
+  enabled: true
+  refresh_ms: 2000
+
+logging:
+  level: "INFO"
+  trade_log_csv: "trades.csv"

@@ -1,0 +1,12 @@
+# Secrets — never commit your real config
+config.yaml
+
+# Runtime output
+trades.csv
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
