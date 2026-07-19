@@ -52,6 +52,29 @@ class EmailNotifier:
         )
         self.send("[Trading Bot] Started", body)
 
+    def notify_signal(self, pending):
+        """A signal is waiting in the control panel for manual confirmation."""
+        expires = time.strftime(
+            "%H:%M:%S UTC", time.gmtime(pending.expires_at)
+        )
+        body = (
+            f"SIGNAL {pending.direction.upper()} {pending.symbol} — "
+            "waiting for your confirmation in the control panel.\n\n"
+            f"Signal price:  {pending.price:.6g} USDT\n"
+            f"Score:         {pending.score:+.1f}\n"
+            f"ADX:           {pending.adx:.1f}\n"
+            f"Reasons:       {'; '.join(pending.reasons)}\n"
+            f"Expires:       {expires}\n"
+            f"Time:          {_now()}\n\n"
+            "Open the bot's control panel and press Confirm to place the trade, "
+            "or Dismiss to skip it. If you do nothing it expires automatically."
+        )
+        self.send(
+            f"[Trading Bot] SIGNAL {pending.direction.upper()} {pending.symbol} "
+            f"@ {pending.price:.6g} — confirm to trade",
+            body,
+        )
+
     def notify_open(self, trade, signal_score: float, reasons: list):
         body = (
             f"OPENED {trade.side.upper()} {trade.symbol}\n\n"

@@ -77,7 +77,9 @@ class TradingBot:
         self.paper = bool(self.trading["paper_trading"])
         self.paper_broker = PaperBroker(self.trading["paper_starting_balance"])
         self.live_broker = LiveBroker()
+        self.confirm_mode = bool(self.trading["confirm_signals"])
         self.state.mode = "paper" if self.paper else "LIVE"
+        self.state.entry_mode = "manual confirm" if self.confirm_mode else "auto"
         self._last_candle_ts: dict[str, object] = {}
         self._cooldown_until: dict[str, float] = {}
         self._day_start_equity: float | None = None
@@ -121,18 +123,26 @@ class TradingBot:
                 self.notifier.notify_error(f"Trading loop error: {exc}")
             elapsed = time.time() - started
             wait = max(1.0, self.trading["poll_interval_sec"] - elapsed)
-            self.state.stop_requested.wait(wait)
+            # wake_trader is set by GUI confirmations so they execute promptly
+            self.state.wake_trader.wait(wait)
+            self.state.wake_trader.clear()
 
         self.state.set_status("stopped")
         log.info("bot stopped")
 
     def stop(self):
         self.state.stop_requested.set()
+        self.state.wake_trader.set()
 
     # ----------------------------------------------------------------- tick
 
     def _tick(self, symbols: list):
         self._check_daily_loss_limit()
+        for expired in self.state.prune_expired_signals():
+            self.state.log_signal(
+                expired.symbol, f"signal {expired.signal_id} expired unconfirmed"
+            )
+        self._execute_confirmed_signals()
         for symbol in symbols:
             price = self.exchange.fetch_last_price(symbol)
             self._manage_open_trades(symbol, price)
@@ -204,8 +214,58 @@ class TradingBot:
         if not signal.is_entry:
             return
 
+        if self.confirm_mode:
+            pending = self.state.add_pending_signal(
+                symbol=symbol,
+                direction=signal.direction,
+                score=signal.score,
+                price=price,
+                atr=signal.atr,
+                adx=signal.adx,
+                reasons=signal.reasons,
+                ttl_sec=self.trading["signal_expiry_minutes"] * 60.0,
+            )
+            self.state.log_signal(
+                symbol,
+                f"signal {pending.signal_id}: {signal.direction} @ {price:.6g} "
+                f"(score {signal.score:+.1f}) — WAITING FOR CONFIRMATION",
+            )
+            self.notifier.notify_signal(pending)
+            log.info("queued %s signal %s for confirmation", signal.direction, symbol)
+            return
+
+        self._execute_entry(symbol, signal.direction, price, signal.atr,
+                            signal.score, signal.reasons)
+
+    def _execute_confirmed_signals(self):
+        for sig in self.state.take_confirmed_signals():
+            if self._halted_for_day:
+                self.state.log_signal(
+                    sig.symbol, f"signal {sig.signal_id} skipped: daily loss halt"
+                )
+                continue
+            if any(t.symbol == sig.symbol for t in self.state.open_trades.values()):
+                self.state.log_signal(
+                    sig.symbol, f"signal {sig.signal_id} skipped: position already open"
+                )
+                continue
+            if len(self.state.open_trades) >= self.trading["max_open_positions"]:
+                self.state.log_signal(
+                    sig.symbol, f"signal {sig.signal_id} skipped: max positions reached"
+                )
+                continue
+            # Execute at the CURRENT market price, not the stale signal price.
+            price = self.exchange.fetch_last_price(sig.symbol)
+            self.state.log_signal(
+                sig.symbol, f"signal {sig.signal_id} CONFIRMED — executing {sig.direction}"
+            )
+            self._execute_entry(sig.symbol, sig.direction, price, sig.atr,
+                                sig.score, sig.reasons)
+
+    def _execute_entry(self, symbol: str, direction: str, price: float,
+                       atr_value: float, score: float, reasons: list):
         equity = self._equity()
-        plan = self.risk.build_plan(signal.direction, price, signal.atr, equity)
+        plan = self.risk.build_plan(direction, price, atr_value, equity)
         if plan is None:
             log.info("%s: no valid trade plan (equity %.2f)", symbol, equity)
             return
@@ -238,9 +298,9 @@ class TradingBot:
         trade.update_mark(price)
         self.state.add_trade(trade)
         self.state.log_signal(
-            symbol, f"OPENED {plan.side} @ {price:.6g} (score {signal.score:+.1f})"
+            symbol, f"OPENED {plan.side} @ {price:.6g} (score {score:+.1f})"
         )
-        self.notifier.notify_open(trade, signal.score, signal.reasons)
+        self.notifier.notify_open(trade, score, reasons)
         log.info("opened %s %s @ %.6g sl %.6g tp %.6g", plan.side, symbol, price,
                  plan.stop_loss, plan.take_profit)
 

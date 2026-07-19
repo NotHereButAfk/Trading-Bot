@@ -1,9 +1,11 @@
 # HTX Futures Trading Bot
 
-An automated trading bot for **HTX (former Huobi) USDT-margined perpetual futures**.
+A trading bot for **HTX (former Huobi) USDT-margined perpetual futures**.
 It combines five technical indicators into a confluence score, manages risk with
-ATR-based stops and trailing stops, **emails you every time it opens or closes a
-trade**, and shows your open positions live in a **desktop GUI dashboard**.
+ATR-based stops and trailing stops, **emails you every time a signal fires and
+every time a trade opens or closes**, and gives you a **desktop control panel**:
+when a signal comes through it waits in the panel, and nothing is bought or sold
+until you press **Confirm**.
 
 ![Dashboard](docs/screenshot.png)
 
@@ -25,10 +27,17 @@ trade**, and shows your open positions live in a **desktop GUI dashboard**.
   - stop moves to breakeven at +1R, then trails price by ATR
   - per-symbol cooldown after a close, max open positions cap
   - daily loss circuit-breaker halts new entries
-- **Email alerts** on bot start, trade open (with entry, stop, target and the
-  signal reasons) and trade close (with realized PnL)
-- **GUI dashboard** (Tkinter) — equity, session PnL, open trades with live
-  unrealized PnL, closed-trade history and the signal log
+- **Signal confirmation control panel** — when the strategy fires, the signal
+  appears in the GUI with **Confirm** and **Dismiss** buttons and you get an
+  email; the buy/sell only happens after you press Confirm. Unconfirmed signals
+  expire automatically (10 min default). Set `confirm_signals: false` for
+  fully automatic entries.
+- **Email alerts** on bot start, signal fired (so you know to go confirm it),
+  trade open (with entry, stop, target and the signal reasons) and trade close
+  (with realized PnL)
+- **GUI control panel** (Tkinter) — pending signals with Confirm/Dismiss,
+  equity, session PnL, open trades with live unrealized PnL, closed-trade
+  history and the signal log
 - **Paper-trading mode** (default) — trades a simulated balance against live HTX
   market data, no API keys needed
 - Trade history appended to `trades.csv`
@@ -93,6 +102,24 @@ The votes sum to a score (−5…+5 with default weights). A **long** opens at
 score ≥ 3, a **short** at ≤ −3 — but only if **ADX ≥ 20** (a real trend exists)
 and volume is above its average (the move has participation). Indicators
 abstaining in extremes means the bot avoids chasing exhausted, overextended moves.
+
+### Signal confirmation flow
+
+With `confirm_signals: true` (the default), a firing signal does **not** trade
+immediately. Instead:
+
+1. The signal appears in the control panel's **Pending signals** table
+   (direction, score, price, ADX, expiry countdown) and you receive an email.
+2. Press **✓ Confirm trade** to execute the buy (long) or sell (short) at the
+   *current* market price — position sizing, stop-loss and take-profit are
+   applied exactly as in automatic mode.
+3. Press **✗ Dismiss** to skip it, or do nothing and it expires after
+   `signal_expiry_minutes`.
+
+Exits are always automatic — stop-loss, take-profit and trailing stops fire
+without confirmation so a losing position is never left waiting for a click.
+Note that confirmation mode needs the GUI running; in `--no-gui` mode signals
+would just expire, so run headless setups with `confirm_signals: false`.
 
 An open trade closes when:
 - the **stop-loss** is hit (2×ATR from entry, sized to lose exactly your risk %),

@@ -19,6 +19,10 @@ trading:
   margin_mode: "isolated"   # isolated | cross
   paper_trading: true       # KEEP true until you trust the strategy
   paper_starting_balance: 10000.0
+  confirm_signals: true     # true: signals wait in the control panel for your
+                            #       Confirm click (an email is sent when one fires)
+                            # false: the bot enters trades fully automatically
+  signal_expiry_minutes: 10 # unconfirmed signals disappear after this long
   poll_interval_sec: 15     # price/exit checks between candles
   candle_history: 300
   max_open_positions: 3

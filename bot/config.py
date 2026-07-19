@@ -18,6 +18,8 @@ DEFAULTS = {
         "margin_mode": "isolated",
         "paper_trading": True,
         "paper_starting_balance": 10000.0,
+        "confirm_signals": True,
+        "signal_expiry_minutes": 10.0,
         "poll_interval_sec": 15,
         "candle_history": 300,
         "max_open_positions": 3,
@@ -124,6 +126,8 @@ def validate_config(cfg: dict) -> None:
         raise ValueError("trading.symbols must contain at least one symbol")
     if trading["leverage"] < 1 or trading["leverage"] > 125:
         raise ValueError("trading.leverage must be between 1 and 125")
+    if trading["signal_expiry_minutes"] <= 0:
+        raise ValueError("trading.signal_expiry_minutes must be positive")
     if not trading["paper_trading"]:
         if not cfg["exchange"]["api_key"] or not cfg["exchange"]["api_secret"]:
             raise ValueError(
