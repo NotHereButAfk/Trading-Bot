@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass
 
 from . import indicators
+from .config import TIMEFRAME_SECONDS
 from .exchange import HTXFutures
 from .notifier import EmailNotifier
 from .risk import RiskManager, TradePlan
@@ -105,8 +106,14 @@ class TradingBot:
         self.confirm_mode = bool(self.trading["confirm_signals"])
         self.state.mode = "paper" if self.paper else "LIVE"
         self.state.entry_mode = "manual confirm" if self.confirm_mode else "auto"
+        # The universe of symbols to scan for entries (may be the top-N by
+        # volume). Resolved for real in run(); defaults to the configured list
+        # so unit tests that don't call run() still have a universe.
+        self.symbols = list(self.trading["symbols"])
         self._last_candle_ts: dict[str, object] = {}
         self._cooldown_until: dict[str, float] = {}
+        self._prepared_symbols: set[str] = set()
+        self._last_scan_bucket: int | None = None
         self._day_start_equity: float | None = None
         self._day_stamp: str = ""
         self._halted_for_day = False
@@ -114,12 +121,12 @@ class TradingBot:
     # ------------------------------------------------------------------ run
 
     def run(self):
-        symbols = self.trading["symbols"]
         self.state.set_status("connecting to HTX")
         try:
             self.exchange.load_markets()
+            self.symbols = self._resolve_universe()
             if not self.paper:
-                self._live_preflight(symbols)
+                self._live_preflight()
             self._detect_balance()
             equity = self._equity()
             self.state.set_equity(equity)
@@ -131,15 +138,15 @@ class TradingBot:
 
         self.state.set_status("running")
         self.notifier.notify_startup(
-            self.state.mode, symbols, self.trading["timeframe"], equity
+            self.state.mode, self.symbols, self.trading["timeframe"], equity
         )
         self.state.log_signal("*", f"Bot started in {self.state.mode} mode")
-        log.info("bot running (%s) on %s", self.state.mode, symbols)
+        log.info("bot running (%s) scanning %d symbols", self.state.mode, len(self.symbols))
 
         while not self.state.stop_requested.is_set():
             started = time.time()
             try:
-                self._tick(symbols)
+                self._tick()
             except Exception as exc:
                 log.exception("error in trading loop")
                 self.state.set_status(f"error: {exc}")
@@ -157,35 +164,47 @@ class TradingBot:
         self.state.stop_requested.set()
         self.state.wake_trader.set()
 
-    def _live_preflight(self, symbols: list):
-        """Real-money startup checks: confirm leverage/margin took effect and
-        warn about positions the bot isn't tracking."""
-        for symbol in symbols:
-            warnings = self.exchange.prepare_symbol(
-                symbol, self.trading["leverage"], self.trading["margin_mode"]
-            )
-            for warning in warnings:
-                log.warning(warning)
-                self.state.log_signal(symbol, f"SETUP WARNING: {warning}")
-                self.notifier.notify_error(f"Live setup warning: {warning}")
+    def _resolve_universe(self) -> list:
+        """Pick the symbols to scan for entries: the configured list, or the
+        top-N most liquid HTX perpetuals when universe == 'top_volume'."""
+        if self.trading["universe"] != "top_volume":
+            return list(self.trading["symbols"])
+        n = int(self.trading["universe_size"])
+        try:
+            symbols = self.exchange.top_symbols_by_volume(n)
+        except Exception as exc:
+            log.exception("failed to select top-%d universe", n)
+            self.state.log_signal("*", f"universe selection failed ({exc}); using config list")
+            return list(self.trading["symbols"])
+        if not symbols:
+            self.state.log_signal("*", "no symbols found for top-volume universe; using config list")
+            return list(self.trading["symbols"])
+        self.state.log_signal(
+            "*", f"scanning top {len(symbols)} HTX symbols by volume "
+                 f"(e.g. {', '.join(symbols[:5])}…)"
+        )
+        log.info("selected top-%d universe: %s", len(symbols), symbols)
+        return symbols
 
-        for symbol in symbols:
-            try:
-                existing = self.exchange.fetch_position(symbol)
-            except Exception as exc:
-                log.warning("could not check existing position for %s: %s", symbol, exc)
-                continue
-            if existing is not None:
-                contracts = existing.get("contracts")
-                side = existing.get("side")
-                msg = (
-                    f"{symbol}: an open {side} position ({contracts} contracts) already "
-                    "exists on HTX. The bot will NOT manage or close it and will skip "
-                    "new entries on this symbol until it is gone."
-                )
-                log.warning(msg)
-                self.state.log_signal(symbol, f"PRE-EXISTING POSITION: {msg}")
-                self.notifier.notify_error(msg)
+    def _live_preflight(self):
+        """Real-money startup check: warn about positions the bot isn't
+        tracking. Leverage/margin is set lazily per symbol on first entry so a
+        large universe doesn't fire hundreds of setup calls at startup."""
+        try:
+            existing = self.exchange.fetch_all_positions()
+        except Exception as exc:
+            log.warning("could not fetch existing positions: %s", exc)
+            return
+        for pos in existing:
+            symbol = pos.get("symbol")
+            msg = (
+                f"{symbol}: an open {pos.get('side')} position ({pos.get('contracts')} "
+                "contracts) already exists on HTX. The bot will NOT manage or close it "
+                "and will skip new entries on this symbol until it is gone."
+            )
+            log.warning(msg)
+            self.state.log_signal(symbol, f"PRE-EXISTING POSITION: {msg}")
+            self.notifier.notify_error(msg)
 
     def _detect_balance(self):
         """Read the real USDT account balance whenever a key is available.
@@ -216,7 +235,8 @@ class TradingBot:
 
     # ----------------------------------------------------------------- tick
 
-    def _tick(self, symbols: list):
+    def _tick(self, symbols: list | None = None):
+        universe = self.symbols if symbols is None else symbols
         self._check_daily_loss_limit()
         for expired in self.state.prune_expired_signals():
             self.state.log_signal(
@@ -224,13 +244,39 @@ class TradingBot:
             )
         self._execute_confirmed_signals()
         self._execute_close_requests()
-        for symbol in symbols:
+
+        # Manage EVERY open position each poll (cheap: usually 0-3 symbols),
+        # regardless of whether the symbol is still in the scan universe — a
+        # position must never be left without its stop/target being checked.
+        open_symbols = {t.symbol for t in list(self.state.open_trades.values())}
+        for symbol in open_symbols:
             price = self.exchange.fetch_last_price(symbol)
             self._manage_open_trades(symbol, price)
-            if not self._halted_for_day:
+
+        # Scan the (possibly large) universe for new entries only when a candle
+        # has closed since the last scan, so 100 symbols don't get polled every
+        # few seconds. Exits above still run every poll.
+        if not self._halted_for_day and self._entry_scan_due():
+            for symbol in universe:
+                if len(self.state.open_trades) >= self.trading["max_open_positions"]:
+                    break
+                if symbol in open_symbols:
+                    continue
+                price = self.exchange.fetch_last_price(symbol)
                 self._maybe_enter(symbol, price)
+
         self.state.set_equity(self._equity())
         self.state.set_status("halted (daily loss limit)" if self._halted_for_day else "running")
+
+    def _entry_scan_due(self) -> bool:
+        """True once per closed candle (aligned to the timeframe). Advances the
+        stored bucket as a side effect so each candle is scanned exactly once."""
+        tf = TIMEFRAME_SECONDS.get(self.trading["timeframe"], 900)
+        bucket = int(time.time() // tf)
+        if bucket != self._last_scan_bucket:
+            self._last_scan_bucket = bucket
+            return True
+        return False
 
     def _manage_open_trades(self, symbol: str, price: float):
         open_here = [
@@ -354,6 +400,25 @@ class TradingBot:
             )
             self._close_trade(trade, price, "manual close")
 
+    def _prepare_symbol_once(self, symbol: str):
+        """Set leverage/margin for a symbol the first time we trade it (live).
+        Done lazily so a 100-symbol universe doesn't fire hundreds of setup
+        calls at startup."""
+        if symbol in self._prepared_symbols:
+            return
+        try:
+            warnings = self.exchange.prepare_symbol(
+                symbol, self.trading["leverage"], self.trading["margin_mode"]
+            )
+        except Exception as exc:
+            log.warning("prepare_symbol(%s) failed: %s", symbol, exc)
+            warnings = []
+        for warning in warnings:
+            log.warning(warning)
+            self.state.log_signal(symbol, f"SETUP WARNING: {warning}")
+            self.notifier.notify_error(f"Live setup warning: {warning}")
+        self._prepared_symbols.add(symbol)
+
     def _execute_entry(self, symbol: str, direction: str, price: float,
                        atr_value: float, score: float, reasons: list):
         equity = self._equity()
@@ -365,6 +430,7 @@ class TradingBot:
         # For real money, never stack onto a position the exchange already
         # holds (e.g. one opened manually or left over from a previous run).
         if not self.paper:
+            self._prepare_symbol_once(symbol)
             try:
                 if self.exchange.fetch_position(symbol) is not None:
                     msg = f"{symbol}: exchange already has an open position, skipping entry"

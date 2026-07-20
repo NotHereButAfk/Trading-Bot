@@ -47,6 +47,36 @@ class HTXFutures:
         ticker = self.client.fetch_ticker(symbol)
         return float(ticker["last"])
 
+    def top_symbols_by_volume(self, n: int, quote: str = "USDT") -> list:
+        """Return the `n` most liquid linear `quote`-margined perpetual swaps,
+        ranked by 24h quote (USDT) volume. One tickers call, not one per market."""
+        self.load_markets()
+        candidates = [
+            m["symbol"]
+            for m in self.client.markets.values()
+            if m.get("swap") and m.get("linear") and m.get("active", True)
+            and m.get("settle") == quote
+        ]
+        if not candidates:
+            return []
+        try:
+            tickers = self.client.fetch_tickers(candidates)
+        except Exception as exc:  # some venues reject a long symbol list
+            log.warning("fetch_tickers(subset) failed (%s); fetching all", exc)
+            tickers = self.client.fetch_tickers()
+
+        def volume(sym: str) -> float:
+            t = tickers.get(sym) or {}
+            qv = t.get("quoteVolume")
+            if qv is None:  # derive from base volume x price when absent
+                base = t.get("baseVolume") or 0.0
+                last = t.get("last") or 0.0
+                qv = base * last
+            return float(qv or 0.0)
+
+        ranked = sorted(candidates, key=volume, reverse=True)
+        return ranked[:n]
+
     # --------------------------------------------------------------- account
 
     def fetch_equity_usdt(self) -> float:
@@ -153,6 +183,14 @@ class HTXFutures:
             if pos.get("contracts") and float(pos["contracts"]) > 0:
                 return pos
         return None
+
+    def fetch_all_positions(self) -> list:
+        """All currently-open positions in one call (used at live startup so we
+        don't poll 100 symbols individually)."""
+        return [
+            pos for pos in self.client.fetch_positions()
+            if pos.get("contracts") and float(pos["contracts"]) > 0
+        ]
 
     def position_is_flat(self, symbol: str, retries: int = 3) -> bool:
         """True once the exchange reports no open position for `symbol`.

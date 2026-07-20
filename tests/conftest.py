@@ -49,6 +49,7 @@ class FakeExchange:
         self.fill_slippage = 0.0     # add to price to simulate a worse fill
         self.leave_open_on_close = False  # simulate a close that didn't flatten
         self.preexisting: dict[str, dict] = {}  # positions present before start
+        self.top_symbols: list = []  # what top_symbols_by_volume returns
 
     def load_markets(self):
         pass
@@ -100,6 +101,18 @@ class FakeExchange:
 
     def fetch_position(self, symbol):
         return self.preexisting.get(symbol) or self._positions.get(symbol)
+
+    def fetch_all_positions(self):
+        merged = {**self._positions, **self.preexisting}
+        out = []
+        for sym, pos in merged.items():
+            p = dict(pos)
+            p.setdefault("symbol", sym)
+            out.append(p)
+        return out
+
+    def top_symbols_by_volume(self, n, quote="USDT"):
+        return list(self.top_symbols)[:n]
 
 
 @pytest.fixture
