@@ -42,10 +42,15 @@ class EmailNotifier:
     # ------------------------------------------------------------ templates
 
     def notify_startup(self, mode: str, symbols: list, timeframe: str, equity: float):
+        if len(symbols) > 12:
+            shown = ", ".join(symbols[:12])
+            symbol_line = f"{len(symbols)} symbols ({shown}, …)"
+        else:
+            symbol_line = ", ".join(symbols)
         body = (
             "HTX futures trading bot started.\n\n"
             f"Mode:      {mode}\n"
-            f"Symbols:   {', '.join(symbols)}\n"
+            f"Symbols:   {symbol_line}\n"
             f"Timeframe: {timeframe}\n"
             f"Equity:    {equity:.2f} USDT\n"
             f"Time:      {_now()}\n"

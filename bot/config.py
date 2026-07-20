@@ -7,6 +7,13 @@ import stat
 
 import yaml
 
+# Seconds per candle for each supported timeframe (shared by the trader's
+# entry-scan scheduler and the backtester).
+TIMEFRAME_SECONDS = {
+    "1m": 60, "5m": 300, "15m": 900, "30m": 1800,
+    "1h": 3600, "4h": 14400, "1d": 86400,
+}
+
 DEFAULTS = {
     "exchange": {
         "api_key": "",
@@ -22,6 +29,11 @@ DEFAULTS = {
         "credentials_file": "credentials.json",
     },
     "trading": {
+        # Which markets to trade. universe: "list" uses `symbols` below;
+        # "top_volume" auto-selects the most liquid `universe_size` USDT
+        # perpetuals on HTX (e.g. the top 100 coins) at startup.
+        "universe": "list",
+        "universe_size": 100,
         "symbols": ["BTC/USDT:USDT", "ETH/USDT:USDT"],
         "timeframe": "15m",
         "leverage": 5,
@@ -226,8 +238,12 @@ def save_credentials(path: str, updates: dict) -> None:
 
 def validate_config(cfg: dict) -> None:
     trading = cfg["trading"]
-    if not trading["symbols"]:
+    if trading["universe"] not in ("list", "top_volume"):
+        raise ValueError("trading.universe must be 'list' or 'top_volume'")
+    if trading["universe"] == "list" and not trading["symbols"]:
         raise ValueError("trading.symbols must contain at least one symbol")
+    if trading["universe"] == "top_volume" and not 1 <= int(trading["universe_size"]) <= 500:
+        raise ValueError("trading.universe_size must be between 1 and 500")
     if trading["leverage"] < 1 or trading["leverage"] > 125:
         raise ValueError("trading.leverage must be between 1 and 125")
     if trading["signal_expiry_minutes"] <= 0:

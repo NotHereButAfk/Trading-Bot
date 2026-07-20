@@ -20,16 +20,11 @@ from dataclasses import dataclass, field
 import pandas as pd
 
 from bot import indicators
-from bot.config import load_config
+from bot.config import TIMEFRAME_SECONDS, load_config
 from bot.risk import RiskManager
 from bot.strategy import MultiIndicatorStrategy
 
 TAKER_FEE = 0.0005
-
-_TIMEFRAME_SEC = {
-    "1m": 60, "5m": 300, "15m": 900, "30m": 1800,
-    "1h": 3600, "4h": 14400, "1d": 86400,
-}
 
 
 @dataclass
@@ -97,7 +92,7 @@ class Backtester:
         result = BacktestResult(starting_equity=equity)
 
         cooldown_candles = 0
-        timeframe_sec = _TIMEFRAME_SEC.get(self.trading["timeframe"], 900)
+        timeframe_sec = TIMEFRAME_SECONDS.get(self.trading["timeframe"], 900)
         cooldown_len = int(self.trading["cooldown_minutes"] * 60 / timeframe_sec)
         open_trade: BacktestTrade | None = None
         day_stamp, day_start_equity, halted = None, equity, False

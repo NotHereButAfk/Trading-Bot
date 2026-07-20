@@ -18,6 +18,12 @@ until you press **Confirm**.
 
 - **HTX futures connection** via [ccxt](https://github.com/ccxt/ccxt) — linear
   (USDT-margined) perpetual swaps, isolated or cross margin, configurable leverage
+- **Trade the top 100 coins** — point it at a fixed symbol list, or set
+  `universe: top_volume` and it auto-scans the most liquid *N* HTX USDT
+  perpetuals (e.g. the top 100). It scans the whole universe for entries once
+  per candle and checks exits on open positions every poll, so a big universe
+  stays within HTX's rate limits; `max_open_positions` still caps how many
+  trades run at once.
 - **Multi-indicator strategy** — EMA crossover, MACD, RSI, Bollinger Bands and
   Stochastic each cast a weighted vote; a trade opens only when enough of them
   agree *and* the ADX trend filter and volume filter confirm
