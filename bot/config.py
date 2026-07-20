@@ -34,6 +34,9 @@ DEFAULTS = {
         "paper_trading": True,
         "force_paper": False,
         "paper_starting_balance": 10000.0,
+        # When a key is present, detect the real HTX balance and use it to seed
+        # paper/practice mode too (so simulation reflects your actual account).
+        "use_real_balance": True,
         "confirm_signals": True,
         "signal_expiry_minutes": 10.0,
         "poll_interval_sec": 15,

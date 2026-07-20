@@ -101,6 +101,7 @@ class TradingBot:
         self.paper = bool(self.trading["paper_trading"])
         self.paper_broker = PaperBroker(self.trading["paper_starting_balance"])
         self.live_broker = LiveBroker()
+        self.has_key = bool(cfg["exchange"]["api_key"]) and bool(cfg["exchange"]["api_secret"])
         self.confirm_mode = bool(self.trading["confirm_signals"])
         self.state.mode = "paper" if self.paper else "LIVE"
         self.state.entry_mode = "manual confirm" if self.confirm_mode else "auto"
@@ -119,6 +120,7 @@ class TradingBot:
             self.exchange.load_markets()
             if not self.paper:
                 self._live_preflight(symbols)
+            self._detect_balance()
             equity = self._equity()
             self.state.set_equity(equity)
         except Exception as exc:
@@ -184,6 +186,33 @@ class TradingBot:
                 log.warning(msg)
                 self.state.log_signal(symbol, f"PRE-EXISTING POSITION: {msg}")
                 self.notifier.notify_error(msg)
+
+    def _detect_balance(self):
+        """Read the real USDT account balance whenever a key is available.
+
+        - Live: sizing already uses the live balance every tick; this just logs
+          the detected figure at startup.
+        - Paper WITH a key (practice mode): seed the simulated balance from the
+          real account so practice reflects your actual account size, unless
+          trading.use_real_balance is turned off.
+        """
+        if not self.has_key:
+            log.info("no API key — paper balance is %.2f USDT (configured)",
+                     self.paper_broker.balance)
+            return
+        try:
+            detected = self.exchange.fetch_equity_usdt()
+        except Exception as exc:
+            log.warning("could not detect account balance: %s", exc)
+            self.state.log_signal("*", f"could not detect balance: {exc}")
+            return
+        self.state.log_signal("*", f"detected HTX balance: {detected:.2f} USDT")
+        log.info("detected HTX USDT balance: %.2f", detected)
+        if self.paper and self.cfg["trading"].get("use_real_balance", True):
+            self.paper_broker.balance = detected
+            self.state.log_signal(
+                "*", f"seeding paper mode with your real balance ({detected:.2f} USDT)"
+            )
 
     # ----------------------------------------------------------------- tick
 

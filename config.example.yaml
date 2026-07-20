@@ -33,7 +33,10 @@ trading:
   # you at load time. force_paper: true keeps SIMULATION even with a key set,
   # so you can practise against your real account's data without real orders.
   force_paper: false
-  paper_starting_balance: 10000.0
+  paper_starting_balance: 10000.0   # used for paper mode when NO key is set
+  use_real_balance: true    # with a key set, detect your real HTX balance and
+                            # use it (live sizes off it; paper/practice is seeded
+                            # from it so simulation matches your account size)
   confirm_signals: true     # true: signals wait in the control panel for your
                             #       Confirm click (an email is sent when one fires)
                             # false: the bot enters trades fully automatically

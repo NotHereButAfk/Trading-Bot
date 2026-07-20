@@ -42,6 +42,7 @@ class FakeExchange:
         self.df = df if df is not None else make_ohlcv(**UPTREND)
         self.price = float(self.df["close"].iloc[-1])
         self.contract_size = contract_size
+        self.equity_usdt = 10000.0  # settable so tests can vary the balance
         # live simulation state
         self._positions: dict[str, dict] = {}
         self._order_seq = 0
@@ -62,7 +63,7 @@ class FakeExchange:
         return self.price
 
     def fetch_equity_usdt(self):
-        return 10000.0
+        return self.equity_usdt
 
     def amount_to_contracts(self, symbol, base_amount):
         return round(base_amount / self.contract_size, 0)
