@@ -117,6 +117,51 @@ def test_confirm_skips_when_position_open(cfg):
     assert len(state.open_trades) == 1  # still just one
 
 
+# ------------------------------------------------------------- balance detection
+
+def test_detect_balance_seeds_paper_when_key_present(cfg):
+    cfg["trading"]["force_paper"] = True  # paper, but with a key available
+    ex = FakeExchange()
+    ex.equity_usdt = 137.42
+    bot = TradingBot(cfg, BotState(), exchange=ex)
+    bot.has_key = True  # simulate a configured key
+    bot._detect_balance()
+    assert bot.paper_broker.balance == 137.42
+    assert bot._equity() == 137.42
+
+
+def test_detect_balance_ignored_without_key(cfg):
+    ex = FakeExchange()
+    ex.equity_usdt = 999.0
+    bot = TradingBot(cfg, BotState(), exchange=ex)
+    bot.has_key = False
+    start = bot.paper_broker.balance
+    bot._detect_balance()
+    assert bot.paper_broker.balance == start  # untouched -> configured starting balance
+
+
+def test_use_real_balance_off_keeps_configured(cfg):
+    cfg["trading"]["force_paper"] = True
+    cfg["trading"]["use_real_balance"] = False
+    ex = FakeExchange()
+    ex.equity_usdt = 500.0
+    bot = TradingBot(cfg, BotState(), exchange=ex)
+    bot.has_key = True
+    configured = bot.paper_broker.balance
+    bot._detect_balance()
+    assert bot.paper_broker.balance == configured  # opted out of real-balance seeding
+
+
+def test_detect_balance_survives_fetch_error(cfg):
+    class Boom(FakeExchange):
+        def fetch_equity_usdt(self):
+            raise RuntimeError("network down")
+    bot = TradingBot(cfg, BotState(), exchange=Boom())
+    bot.has_key = True
+    bot._detect_balance()  # must not raise; keeps configured balance
+    assert bot.paper_broker.balance == cfg["trading"]["paper_starting_balance"]
+
+
 # --------------------------------------------------------------- live path
 
 def _live_bot(cfg, exchange=None):
