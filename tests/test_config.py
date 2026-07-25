@@ -29,8 +29,8 @@ def test_validate_live_still_needs_keys():
 
 def test_env_vars_override_keys(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("HTX_API_KEY", "env-key")
-    monkeypatch.setenv("HTX_API_SECRET", "env-secret")
+    monkeypatch.setenv("MEXC_API_KEY", "env-key")
+    monkeypatch.setenv("MEXC_API_SECRET", "env-secret")
     cfg = load_config("config.yaml")
     assert cfg["exchange"]["api_key"] == "env-key"
     assert cfg["exchange"]["api_secret"] == "env-secret"
@@ -46,15 +46,15 @@ def test_no_api_key_is_paper(monkeypatch, tmp_path):
 
 def test_api_key_present_goes_live(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("HTX_API_KEY", "k")
-    monkeypatch.setenv("HTX_API_SECRET", "s")
+    monkeypatch.setenv("MEXC_API_KEY", "k")
+    monkeypatch.setenv("MEXC_API_SECRET", "s")
     cfg = load_config("config.yaml")
     assert cfg["trading"]["paper_trading"] is False  # real money
 
 
 def test_key_present_but_only_partial_stays_paper(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("HTX_API_KEY", "k")  # secret missing
+    monkeypatch.setenv("MEXC_API_KEY", "k")  # secret missing
     cfg = load_config("config.yaml")
     assert cfg["trading"]["paper_trading"] is True
 
@@ -133,7 +133,7 @@ def test_env_beats_credentials_file(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     save_credentials(str(tmp_path / "credentials.json"),
                      {"api_key": "from_creds", "api_secret": "creds_secret"})
-    monkeypatch.setenv("HTX_API_KEY", "from_env")
+    monkeypatch.setenv("MEXC_API_KEY", "from_env")
     cfg = load_config("config.yaml")
     assert cfg["exchange"]["api_key"] == "from_env"          # env wins
     assert cfg["exchange"]["api_secret"] == "creds_secret"   # falls back to creds

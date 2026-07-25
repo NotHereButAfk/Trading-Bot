@@ -1,6 +1,6 @@
-# HTX Futures Trading Bot
+# MEXC Futures Trading Bot
 
-A trading bot for **HTX (former Huobi) USDT-margined perpetual futures**.
+A trading bot for **MEXC USDT-margined perpetual futures**.
 It combines five technical indicators into a confluence score, manages risk with
 ATR-based stops and trailing stops, **emails you every time a signal fires and
 every time a trade opens or closes**, and gives you a **desktop control panel**:
@@ -16,13 +16,13 @@ until you press **Confirm**.
 
 ## Features
 
-- **HTX futures connection** via [ccxt](https://github.com/ccxt/ccxt) — linear
+- **MEXC futures connection** via [ccxt](https://github.com/ccxt/ccxt) — linear
   (USDT-margined) perpetual swaps, isolated or cross margin, configurable leverage
 - **Trade the top 100 coins** — point it at a fixed symbol list, or set
-  `universe: top_volume` and it auto-scans the most liquid *N* HTX USDT
+  `universe: top_volume` and it auto-scans the most liquid *N* MEXC USDT
   perpetuals (e.g. the top 100). It scans the whole universe for entries once
   per candle and checks exits on open positions every poll, so a big universe
-  stays within HTX's rate limits; `max_open_positions` still caps how many
+  stays within MEXC's rate limits; `max_open_positions` still caps how many
   trades run at once.
 - **Multi-indicator strategy** — EMA crossover, MACD, RSI, Bollinger Bands and
   Stochastic each cast a weighted vote; a trade opens only when enough of them
@@ -46,12 +46,12 @@ until you press **Confirm**.
   signals with Confirm/Dismiss, equity, session PnL, open trades with live
   unrealized PnL and a **Close position** button to exit any trade manually,
   closed-trade history and the signal log
-- **Backtester** — replay the exact strategy over historical HTX candles and
+- **Backtester** — replay the exact strategy over historical MEXC candles and
   get win rate, net PnL, profit factor, max drawdown and a per-trade breakdown
   before risking real money
 - **Test suite** — `pytest` coverage of the indicators, strategy, risk sizing,
   the confirmation/close flow and the backtester
-- **Paper-trading mode** (default) — trades a simulated balance against live HTX
+- **Paper-trading mode** (default) — trades a simulated balance against live MEXC
   market data, no API keys needed
 - Trade history appended to `trades.csv`
 
@@ -92,10 +92,10 @@ so you can review what happened during unattended runs.
 **Read [GO_LIVE.md](GO_LIVE.md) first — it is the full, safe walkthrough.**
 The short version:
 
-1. Create an API key at HTX → **API Management**. Enable **trade** permission
+1. Create an API key at MEXC → **API Management**. Enable **trade** permission
    only — never withdrawals. Bind it to your IP if possible.
 2. Add the key via the in-app **⚙ Settings** screen (easiest), or `config.yaml`
-   (`exchange.api_key` / `api_secret`), or `HTX_API_KEY` / `HTX_API_SECRET` env
+   (`exchange.api_key` / `api_secret`), or `MEXC_API_KEY` / `MEXC_API_SECRET` env
    vars. **Never paste your key into a chat, commit or screenshot.**
 3. **The mode is automatic: no API key = paper, an API key = real money.** Just
    having a key configured means the bot trades for real on the next start.
@@ -171,7 +171,7 @@ Everything — periods, weights, thresholds, R-multiples — is tunable in
 Validate the strategy on real history before trading it live:
 
 ```bash
-# fetch candles straight from HTX and backtest
+# fetch candles straight from MEXC and backtest
 python backtest.py --symbol "BTC/USDT:USDT" --timeframe 15m --candles 2000
 
 # or backtest an offline OHLCV csv (timestamp,open,high,low,close,volume)
@@ -200,7 +200,7 @@ config.example.yaml    documented config template
 tests/                 pytest suite (strategy, risk, trader, backtest)
 bot/
   config.py            config loading/validation, env-var secrets
-  exchange.py          HTX futures wrapper (ccxt)
+  exchange.py          MEXC futures wrapper (ccxt)
   indicators.py        EMA, RSI, MACD, Bollinger, Stochastic, ATR, ADX
   strategy.py          confluence voting engine
   risk.py              position sizing, SL/TP, trailing stops

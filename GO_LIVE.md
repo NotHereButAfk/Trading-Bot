@@ -1,6 +1,6 @@
 # Going live with real money
 
-This bot ships in **paper mode**. Switching it to trade your real HTX balance
+This bot ships in **paper mode**. Switching it to trade your real MEXC balance
 takes three deliberate steps. Read this whole page first.
 
 > ⚠️ Live futures trading with leverage can lose money fast, including more than
@@ -17,16 +17,25 @@ Your key is a password to your money. It goes in exactly one of two places:
 
 Do **not** paste it into a chat window, a commit, a screenshot, or an issue.
 
-## Step 1 — Create an HTX API key
+## Step 1 — Create an MEXC API key
 
-1. Log in to HTX → **API Management** (https://www.htx.com/en-us/apikey/).
-2. Create a key with **Trade** permission for **USDT-M futures/swap**.
+1. Log in to MEXC → **User Center → API Management** (https://www.mexc.com/user/openapi).
+2. Create a key with **Trade** permission and enable **Futures**.
 3. **Do NOT enable Withdraw.** A trading bot never needs it; leaving it off
    means a leaked key still cannot move coins off your account.
-4. If HTX lets you, **bind the key to your IP address** (the machine running
+4. If MEXC lets you, **bind the key to your IP address** (the machine running
    the bot). This is the single best protection for the key.
 5. Copy the **Access Key** (api key) and **Secret Key**. The secret is shown
    only once.
+
+> ⚠️ **MEXC futures-API access is not automatic for every account.** MEXC has
+> at times restricted contract (futures) order placement over the API — you may
+> need to request futures-API access from MEXC support, or find that only
+> certain accounts can trade futures programmatically. Market data, prices and
+> balances work regardless. If your first live order is rejected with a
+> permissions/authorization error, this is why — contact MEXC support to enable
+> futures API trading. Test with **Practice mode** (paper + your key) first so
+> you find out before risking real money.
 
 ## Step 2 — Enter the key (three ways, pick one)
 
@@ -53,8 +62,8 @@ Leave them blank (or set `trading.force_paper: true`) to stay in simulation.
 **(c) Environment variables** (the key never touches a file):
 
 ```bash
-export HTX_API_KEY="YOUR_ACCESS_KEY"
-export HTX_API_SECRET="YOUR_SECRET_KEY"
+export MEXC_API_KEY="YOUR_ACCESS_KEY"
+export MEXC_API_SECRET="YOUR_SECRET_KEY"
 ```
 
 If more than one is set, the order of precedence is: env vars > the in-app
@@ -101,7 +110,7 @@ Then run:
 python run.py
 ```
 
-You'll see `HTX Futures Bot — LIVE` in the control panel and get a startup
+You'll see `MEXC Futures Bot — LIVE` in the control panel and get a startup
 email. With `confirm_signals: true`, **no order is placed until you press
 Confirm** on a signal — so the first real trade is still your decision.
 
@@ -133,6 +142,6 @@ Confirm** on a signal — so the first real trade is still your decision.
 
 ## If something looks wrong
 
-Open the HTX app/website and look at your actual positions. The exchange is the
+Open the MEXC app/website and look at your actual positions. The exchange is the
 source of truth. You can always close a position there directly. If you get an
-`URGENT: ... did not close` email, check and close it manually on HTX.
+`URGENT: ... did not close` email, check and close it manually on MEXC.

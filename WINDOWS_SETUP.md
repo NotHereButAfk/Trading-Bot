@@ -60,7 +60,7 @@ If Windows SmartScreen warns about a `.bat`, click **More info ▸ Run anyway**
 **Start in paper mode** — it is the default, so you can just run the bot first
 and configure it from inside the app.
 
-To add your HTX API key, the easiest way is **in the app**: start the bot, click
+To add your MEXC API key, the easiest way is **in the app**: start the bot, click
 **⚙ Settings / API Key** in the top bar, paste your key and secret, and Save.
 It's stored locally in `credentials.json` (gitignored, owner-only) — you never
 have to edit a file. You can also edit `config.yaml` in Notepad if you prefer.
@@ -147,5 +147,5 @@ To stop it, disable or delete the task in Task Scheduler (and close the window).
 - **GUI didn't appear** — it falls back to headless if the desktop is
   unavailable; check `bot.log`. Under Task Scheduler, GUI mode needs
   "Run only when user is logged on".
-- **The exchange is the source of truth** — if anything looks off, open the HTX
+- **The exchange is the source of truth** — if anything looks off, open the MEXC
   app and check/close positions there directly.

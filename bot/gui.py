@@ -39,7 +39,7 @@ class Dashboard:
         )
 
         self.root = tk.Tk()
-        self.root.title("HTX Futures Bot — Control Panel")
+        self.root.title("MEXC Futures Bot — Control Panel")
         self.root.geometry("1040x800")
         self.root.configure(bg=BG)
         self.root.protocol("WM_DELETE_WINDOW", self._handle_close)
@@ -234,7 +234,7 @@ class Dashboard:
         self.root.after(self.refresh_ms, self._refresh)
 
     def _draw(self, snap):
-        self.mode_var.set(f"HTX Futures Bot — {snap['mode'].upper()}")
+        self.mode_var.set(f"MEXC Futures Bot — {snap['mode'].upper()}")
         entry_mode = snap.get("entry_mode", "auto")
         self.status_var.set(f"status: {snap['status']}   |   entries: {entry_mode}")
         self.equity_var.set(f"Equity: {snap['equity']:.2f} USDT")
@@ -304,7 +304,7 @@ class Dashboard:
         win.transient(self.root)
         win.grab_set()  # modal
 
-        tk.Label(win, text="HTX API credentials", bg=BG, fg=ACCENT,
+        tk.Label(win, text="MEXC API credentials", bg=BG, fg=ACCENT,
                  font=("TkDefaultFont", 13, "bold"), anchor="w").pack(
             fill="x", padx=18, pady=(16, 2))
         tk.Label(
@@ -401,7 +401,7 @@ class Dashboard:
             if not api_key or not api_secret:
                 status_var.set("Enter both key and secret first.")
                 return
-            status_var.set("Testing connection to HTX…")
+            status_var.set("Testing connection to MEXC…")
 
             # Run the network call off the Tk thread so the GUI never freezes,
             # then hand the result back to the Tk thread via win.after().

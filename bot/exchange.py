@@ -1,4 +1,10 @@
-"""HTX (former Huobi) USDT-margined perpetual futures connection via ccxt."""
+"""MEXC USDT-margined perpetual futures connection via ccxt.
+
+Note on MEXC: contract (futures) API trading is not enabled on every MEXC
+account by default — some accounts must request futures-API access from MEXC
+support before order placement works. Market data and balances work regardless.
+If live orders are rejected with a permissions error, that is the cause.
+"""
 
 import logging
 import time
@@ -9,22 +15,26 @@ import pandas as pd
 log = logging.getLogger("bot.exchange")
 
 
-class HTXFutures:
-    """Thin wrapper around ccxt's htx exchange for linear perpetual swaps."""
+class MEXCFutures:
+    """Thin wrapper around ccxt's mexc exchange for linear perpetual swaps."""
 
     def __init__(self, cfg: dict):
         ex_cfg = cfg["exchange"]
         self.trading_cfg = cfg["trading"]
-        self.client = ccxt.htx(
+        self.client = ccxt.mexc(
             {
                 "apiKey": ex_cfg["api_key"],
                 "secret": ex_cfg["api_secret"],
                 "enableRateLimit": True,
-                "options": {"defaultType": "swap", "defaultSubType": "linear"},
+                # MEXC swaps are all USDT-margined linear contracts.
+                "options": {"defaultType": "swap"},
             }
         )
         if ex_cfg.get("testnet"):
-            self.client.set_sandbox_mode(True)
+            try:
+                self.client.set_sandbox_mode(True)
+            except Exception as exc:  # MEXC has no futures sandbox
+                log.warning("MEXC sandbox not available: %s", exc)
         self._markets_loaded = False
 
     def load_markets(self):
@@ -90,13 +100,14 @@ class HTXFutures:
         return float(total or 0.0)
 
     def prepare_symbol(self, symbol: str, leverage: int, margin_mode: str) -> list:
-        """Set margin mode and leverage.
+        """Set margin mode and leverage for a symbol (best effort).
 
-        HTX rejects a no-op margin/leverage change with an error even though
-        nothing is wrong, so those specific "unchanged" errors are downgraded
-        to debug. Any *other* failure is returned as a warning string so the
-        caller can surface it — on real money, silently trading at the wrong
-        leverage is exactly the kind of thing you want shouted about.
+        Exchanges reject a no-op margin/leverage change with an error even
+        though nothing is wrong, so those "unchanged" errors are downgraded to
+        debug. Any *other* failure is returned as a warning string so the caller
+        can surface it — on real money, silently trading at the wrong leverage
+        is exactly the kind of thing you want shouted about. MEXC in particular
+        can be picky here; verify leverage in the MEXC app before sizing up.
         """
         self.load_markets()
         warnings = []
@@ -119,7 +130,7 @@ class HTXFutures:
     # ---------------------------------------------------------------- orders
 
     def amount_to_contracts(self, symbol: str, base_amount: float) -> float:
-        """Convert a base-asset quantity (e.g. BTC) into HTX contract units."""
+        """Convert a base-asset quantity (e.g. BTC) into MEXC contract units."""
         self.load_markets()
         market = self.client.market(symbol)
         contract_size = market.get("contractSize") or 1.0
@@ -132,17 +143,21 @@ class HTXFutures:
         return contracts * (market.get("contractSize") or 1.0)
 
     def market_open(self, symbol: str, side: str, contracts: float, leverage: int) -> dict:
-        """Open a position with a market order. side: 'long' -> buy, 'short' -> sell."""
+        """Open a position with a market order. side: 'long' -> buy, 'short' -> sell.
+
+        Leverage is applied per-symbol via prepare_symbol() before trading, so
+        it is not repeated in the order params here (MEXC uses the symbol's
+        configured leverage)."""
         order_side = "buy" if side == "long" else "sell"
-        params = {"offset": "open", "lever_rate": leverage}
-        order = self.client.create_order(symbol, "market", order_side, contracts, None, params)
+        order = self.client.create_order(symbol, "market", order_side, contracts)
         log.info("opened %s %s x%s contracts: order %s", side, symbol, contracts, order.get("id"))
         return order
 
     def market_close(self, symbol: str, side: str, contracts: float, leverage: int) -> dict:
-        """Close a position: closing a long sells, closing a short buys."""
+        """Close a position: closing a long sells, closing a short buys. reduceOnly
+        guarantees the order can only shrink an existing position, never open one."""
         order_side = "sell" if side == "long" else "buy"
-        params = {"offset": "close", "lever_rate": leverage, "reduceOnly": True}
+        params = {"reduceOnly": True}
         order = self.client.create_order(symbol, "market", order_side, contracts, None, params)
         log.info("closed %s %s x%s contracts: order %s", side, symbol, contracts, order.get("id"))
         return order
@@ -210,7 +225,7 @@ class HTXFutures:
 
 
 def _is_benign_setup_error(exc: Exception) -> bool:
-    """HTX raises on setting margin/leverage to what it already is."""
+    """Exchanges raise on setting margin/leverage to what it already is."""
     text = str(exc).lower()
-    benign = ("not modified", "no change", "already", "repeat", "1051", "1050")
+    benign = ("not modified", "no change", "already", "repeat", "unchanged")
     return any(token in text for token in benign)

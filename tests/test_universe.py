@@ -3,7 +3,7 @@
 import time
 
 from bot.config import TIMEFRAME_SECONDS
-from bot.exchange import HTXFutures
+from bot.exchange import MEXCFutures
 from bot.state import BotState
 from bot.trader import TradingBot
 from tests.conftest import FakeExchange
@@ -34,15 +34,15 @@ class FakeCCXT:
         }
 
 
-def _htx_with_fake_client(cfg):
-    ex = HTXFutures(cfg)          # constructing ccxt.htx does no network
+def _mexc_with_fake_client(cfg):
+    ex = MEXCFutures(cfg)          # constructing ccxt.mexc does no network
     ex.client = FakeCCXT()
     ex._markets_loaded = True
     return ex
 
 
 def test_top_symbols_ranked_by_volume_and_filtered(cfg):
-    ex = _htx_with_fake_client(cfg)
+    ex = _mexc_with_fake_client(cfg)
     top = ex.top_symbols_by_volume(2)
     assert top == ["B/USDT:USDT", "C/USDT:USDT"]  # highest volume first
     # spot and inverse markets are excluded entirely

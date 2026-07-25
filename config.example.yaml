@@ -1,15 +1,15 @@
-# HTX futures trading bot configuration.
+# MEXC futures trading bot configuration.
 # Copy this file to config.yaml and fill in your own values.
 # config.yaml is gitignored so your keys never end up in the repo.
 
 exchange:
-  # Create API keys at https://www.htx.com/ -> API Management.
+  # Create API keys at https://www.mexc.com/user/openapi (User Center -> API).
   # Only enable "Trade" permission. NEVER enable withdrawals for a bot key.
   #
   # THREE ways to provide your key (later overrides earlier):
   #   1. here in this file, or
   #   2. the in-app "Settings / API Key" button (saves to credentials.json), or
-  #   3. HTX_API_KEY / HTX_API_SECRET environment variables.
+  #   3. MEXC_API_KEY / MEXC_API_SECRET environment variables.
   # The GUI Settings screen is the easiest — you never have to edit this file.
   #
   # IMPORTANT — the mode is automatic:
@@ -24,7 +24,7 @@ trading:
   # Which markets to trade:
   #   list        -> trade exactly the `symbols` below
   #   top_volume  -> auto-pick the most liquid `universe_size` USDT perpetuals
-  #                  on HTX at startup (e.g. the top 100 coins)
+  #                  on MEXC at startup (e.g. the top 100 coins)
   universe: "list"
   universe_size: 100        # used when universe: top_volume
   # USDT-margined perpetual swaps, ccxt unified symbols (used when universe: list)
@@ -33,7 +33,7 @@ trading:
     - "ETH/USDT:USDT"
   timeframe: "15m"          # 1m, 5m, 15m, 30m, 1h, 4h, 1d
                             # tip: use 15m or higher with top_volume so scanning
-                            # a large universe stays within HTX rate limits
+                            # a large universe stays within MEXC rate limits
   leverage: 5
   margin_mode: "isolated"   # isolated | cross
   # Mode is decided automatically from whether an API key is present (see the
@@ -42,7 +42,7 @@ trading:
   # so you can practise against your real account's data without real orders.
   force_paper: false
   paper_starting_balance: 10000.0   # used for paper mode when NO key is set
-  use_real_balance: true    # with a key set, detect your real HTX balance and
+  use_real_balance: true    # with a key set, detect your real MEXC balance and
                             # use it (live sizes off it; paper/practice is seeded
                             # from it so simulation matches your account size)
   confirm_signals: true     # true: signals wait in the control panel for your

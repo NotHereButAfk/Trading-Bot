@@ -25,13 +25,13 @@ DEFAULTS = {
         "confirm_live": False,
         # Local file the in-app Settings screen writes your API key to. It is
         # gitignored and never committed. Keys here override config.yaml; env
-        # vars (HTX_API_KEY / HTX_API_SECRET) still override everything.
+        # vars (MEXC_API_KEY / MEXC_API_SECRET) still override everything.
         "credentials_file": "credentials.json",
     },
     "trading": {
         # Which markets to trade. universe: "list" uses `symbols` below;
         # "top_volume" auto-selects the most liquid `universe_size` USDT
-        # perpetuals on HTX (e.g. the top 100 coins) at startup.
+        # perpetuals on MEXC (e.g. the top 100 coins) at startup.
         "universe": "list",
         "universe_size": 100,
         "symbols": ["BTC/USDT:USDT", "ETH/USDT:USDT"],
@@ -46,7 +46,7 @@ DEFAULTS = {
         "paper_trading": True,
         "force_paper": False,
         "paper_starting_balance": 10000.0,
-        # When a key is present, detect the real HTX balance and use it to seed
+        # When a key is present, detect the real MEXC balance and use it to seed
         # paper/practice mode too (so simulation reflects your actual account).
         "use_real_balance": True,
         "confirm_signals": True,
@@ -146,8 +146,8 @@ def load_config(path: str) -> dict:
 
     # Environment variables win over everything so secrets can stay out of files.
     env_map = {
-        ("exchange", "api_key"): "HTX_API_KEY",
-        ("exchange", "api_secret"): "HTX_API_SECRET",
+        ("exchange", "api_key"): "MEXC_API_KEY",
+        ("exchange", "api_secret"): "MEXC_API_SECRET",
         ("email", "smtp_user"): "BOT_SMTP_USER",
         ("email", "smtp_password"): "BOT_SMTP_PASSWORD",
     }
@@ -254,7 +254,7 @@ def validate_config(cfg: dict) -> None:
         if not cfg["exchange"]["api_key"] or not cfg["exchange"]["api_secret"]:
             raise ValueError(
                 "Live trading requires exchange.api_key and exchange.api_secret "
-                "(or HTX_API_KEY / HTX_API_SECRET env vars)"
+                "(or MEXC_API_KEY / MEXC_API_SECRET env vars)"
             )
     risk = cfg["risk"]
     if not 0 < risk["risk_per_trade_pct"] <= 10:
