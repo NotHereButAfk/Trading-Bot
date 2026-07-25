@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Backtest the multi-indicator strategy on historical HTX candles.
+"""Backtest the multi-indicator strategy on historical MEXC candles.
 
 Runs the exact same signal, sizing, stop/target and trailing-stop code the
 live bot uses, candle by candle, and reports win rate, PnL, drawdown and a
@@ -24,7 +24,7 @@ from bot.config import TIMEFRAME_SECONDS, load_config
 from bot.risk import RiskManager
 from bot.strategy import MultiIndicatorStrategy
 
-TAKER_FEE = 0.0005
+TAKER_FEE = 0.0002  # MEXC USDT-M perpetual taker fee estimate (~0.02%)
 
 
 @dataclass
@@ -253,12 +253,12 @@ def save_trades(path: str, trades: list):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Backtest the HTX bot strategy")
+    parser = argparse.ArgumentParser(description="Backtest the MEXC bot strategy")
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--symbol", default=None, help="defaults to first config symbol")
     parser.add_argument("--timeframe", default=None, help="defaults to config timeframe")
     parser.add_argument("--candles", type=int, default=2000)
-    parser.add_argument("--csv", default=None, help="use a local OHLCV csv instead of HTX")
+    parser.add_argument("--csv", default=None, help="use a local OHLCV csv instead of MEXC")
     parser.add_argument("--out", default=None, help="write per-trade results csv here")
     args = parser.parse_args()
 
@@ -271,9 +271,9 @@ def main():
         df = load_csv(args.csv)
         print(f"Loaded {len(df)} candles from {args.csv}")
     else:
-        from bot.exchange import HTXFutures
-        print(f"Fetching {args.candles} x {timeframe} candles for {symbol} from HTX...")
-        exchange = HTXFutures(cfg)
+        from bot.exchange import MEXCFutures
+        print(f"Fetching {args.candles} x {timeframe} candles for {symbol} from MEXC...")
+        exchange = MEXCFutures(cfg)
         df = exchange.fetch_ohlcv(symbol, timeframe, args.candles)
         print(f"Got {len(df)} candles ({df.index[0]} .. {df.index[-1]})")
 

@@ -48,7 +48,7 @@ class EmailNotifier:
         else:
             symbol_line = ", ".join(symbols)
         body = (
-            "HTX futures trading bot started.\n\n"
+            "MEXC futures trading bot started.\n\n"
             f"Mode:      {mode}\n"
             f"Symbols:   {symbol_line}\n"
             f"Timeframe: {timeframe}\n"

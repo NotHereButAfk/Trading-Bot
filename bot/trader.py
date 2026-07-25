@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from . import indicators
 from .config import TIMEFRAME_SECONDS
-from .exchange import HTXFutures
+from .exchange import MEXCFutures
 from .notifier import EmailNotifier
 from .risk import RiskManager, TradePlan
 from .state import BotState, Trade
@@ -14,7 +14,9 @@ from .strategy import MultiIndicatorStrategy
 
 log = logging.getLogger("bot.trader")
 
-TAKER_FEE = 0.0005  # HTX linear swap taker fee (0.05%)
+# MEXC USDT-M perpetual taker fee (~0.02%). Estimate used for paper PnL and
+# fee modelling — check your actual fee tier on MEXC and adjust if needed.
+TAKER_FEE = 0.0002
 
 
 class PositionNotFlatError(Exception):
@@ -38,14 +40,14 @@ class PaperBroker:
         unrealized = sum(t.unrealized_pnl for t in state.open_trades.values())
         return self.balance + unrealized
 
-    def open_trade(self, exchange: HTXFutures, symbol: str, plan: TradePlan, leverage: int) -> Fill:
+    def open_trade(self, exchange: MEXCFutures, symbol: str, plan: TradePlan, leverage: int) -> Fill:
         contracts = exchange.amount_to_contracts(symbol, plan.base_amount)
         base = exchange.contracts_to_base(symbol, contracts)
         fee = base * plan.entry_price * TAKER_FEE
         self.balance -= fee
         return Fill(price=plan.entry_price, contracts=contracts, base=base)
 
-    def close_trade(self, exchange: HTXFutures, trade: Trade, exit_price: float) -> tuple[float, float]:
+    def close_trade(self, exchange: MEXCFutures, trade: Trade, exit_price: float) -> tuple[float, float]:
         direction = 1.0 if trade.side == "long" else -1.0
         gross = direction * (exit_price - trade.entry_price) * trade.base_amount
         fee = trade.base_amount * exit_price * TAKER_FEE
@@ -55,9 +57,9 @@ class PaperBroker:
 
 
 class LiveBroker:
-    """Routes orders to HTX for real."""
+    """Routes orders to MEXC for real."""
 
-    def open_trade(self, exchange: HTXFutures, symbol: str, plan: TradePlan, leverage: int) -> Fill:
+    def open_trade(self, exchange: MEXCFutures, symbol: str, plan: TradePlan, leverage: int) -> Fill:
         contracts = exchange.amount_to_contracts(symbol, plan.base_amount)
         if contracts <= 0:
             raise ValueError(
@@ -72,7 +74,7 @@ class LiveBroker:
         base = exchange.contracts_to_base(symbol, filled)
         return Fill(price=fill_price, contracts=filled, base=base)
 
-    def close_trade(self, exchange: HTXFutures, trade: Trade, exit_price: float) -> tuple[float, float]:
+    def close_trade(self, exchange: MEXCFutures, trade: Trade, exit_price: float) -> tuple[float, float]:
         order = exchange.market_close(trade.symbol, trade.side, trade.contracts, trade.leverage)
         fill_price, _ = exchange.resolve_fill(trade.symbol, order, exit_price)
         # Never report a close as done until the exchange confirms we are flat.
@@ -86,16 +88,16 @@ class LiveBroker:
         fee = trade.base_amount * fill_price * TAKER_FEE
         return gross - fee, fill_price
 
-    def equity(self, exchange: HTXFutures) -> float:
+    def equity(self, exchange: MEXCFutures) -> float:
         return exchange.fetch_equity_usdt()
 
 
 class TradingBot:
-    def __init__(self, cfg: dict, state: BotState, exchange: HTXFutures | None = None):
+    def __init__(self, cfg: dict, state: BotState, exchange: MEXCFutures | None = None):
         self.cfg = cfg
         self.trading = cfg["trading"]
         self.state = state
-        self.exchange = exchange or HTXFutures(cfg)
+        self.exchange = exchange or MEXCFutures(cfg)
         self.strategy = MultiIndicatorStrategy(cfg)
         self.risk = RiskManager(cfg)
         self.notifier = EmailNotifier(cfg)
@@ -121,7 +123,7 @@ class TradingBot:
     # ------------------------------------------------------------------ run
 
     def run(self):
-        self.state.set_status("connecting to HTX")
+        self.state.set_status("connecting to MEXC")
         try:
             self.exchange.load_markets()
             self.symbols = self._resolve_universe()
@@ -166,7 +168,7 @@ class TradingBot:
 
     def _resolve_universe(self) -> list:
         """Pick the symbols to scan for entries: the configured list, or the
-        top-N most liquid HTX perpetuals when universe == 'top_volume'."""
+        top-N most liquid MEXC perpetuals when universe == 'top_volume'."""
         if self.trading["universe"] != "top_volume":
             return list(self.trading["symbols"])
         n = int(self.trading["universe_size"])
@@ -180,7 +182,7 @@ class TradingBot:
             self.state.log_signal("*", "no symbols found for top-volume universe; using config list")
             return list(self.trading["symbols"])
         self.state.log_signal(
-            "*", f"scanning top {len(symbols)} HTX symbols by volume "
+            "*", f"scanning top {len(symbols)} MEXC symbols by volume "
                  f"(e.g. {', '.join(symbols[:5])}…)"
         )
         log.info("selected top-%d universe: %s", len(symbols), symbols)
@@ -199,7 +201,7 @@ class TradingBot:
             symbol = pos.get("symbol")
             msg = (
                 f"{symbol}: an open {pos.get('side')} position ({pos.get('contracts')} "
-                "contracts) already exists on HTX. The bot will NOT manage or close it "
+                "contracts) already exists on MEXC. The bot will NOT manage or close it "
                 "and will skip new entries on this symbol until it is gone."
             )
             log.warning(msg)
@@ -225,8 +227,8 @@ class TradingBot:
             log.warning("could not detect account balance: %s", exc)
             self.state.log_signal("*", f"could not detect balance: {exc}")
             return
-        self.state.log_signal("*", f"detected HTX balance: {detected:.2f} USDT")
-        log.info("detected HTX USDT balance: %.2f", detected)
+        self.state.log_signal("*", f"detected MEXC balance: {detected:.2f} USDT")
+        log.info("detected MEXC USDT balance: %.2f", detected)
         if self.paper and self.cfg["trading"].get("use_real_balance", True):
             self.paper_broker.balance = detected
             self.state.log_signal(
@@ -491,7 +493,7 @@ class TradingBot:
             self.state.log_signal(trade.symbol, f"CLOSE INCOMPLETE — STILL OPEN: {exc}")
             self.notifier.notify_error(
                 f"URGENT: {trade.trade_id} did not close — position may still be "
-                f"open on HTX. {exc}"
+                f"open on MEXC. {exc}"
             )
             return
         except Exception as exc:

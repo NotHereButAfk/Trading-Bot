@@ -29,15 +29,15 @@ RESTART_REQUESTED = 3  # run_bot.bat / run_bot_headless.bat relaunch on this cod
 
 
 def _make_connection_tester(cfg: dict):
-    """Return a function the GUI can call to verify API keys against HTX."""
+    """Return a function the GUI can call to verify API keys against MEXC."""
     import copy
 
     def test(api_key: str, api_secret: str):
-        from bot.exchange import HTXFutures
+        from bot.exchange import MEXCFutures
         probe_cfg = copy.deepcopy(cfg)
         probe_cfg["exchange"]["api_key"] = api_key
         probe_cfg["exchange"]["api_secret"] = api_secret
-        exchange = HTXFutures(probe_cfg)
+        exchange = MEXCFutures(probe_cfg)
         exchange.load_markets()
         equity = exchange.fetch_equity_usdt()  # needs valid auth
         return True, f"Connected. USDT balance: {equity:.2f}"
@@ -63,7 +63,7 @@ def _setup_logging(level_name: str, log_file: str | None):
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="HTX futures trading bot")
+    parser = argparse.ArgumentParser(description="MEXC futures trading bot")
     parser.add_argument("--config", default="config.yaml", help="path to config file")
     parser.add_argument("--no-gui", action="store_true", help="run without the GUI")
     parser.add_argument("--log-file", default="bot.log",
@@ -89,7 +89,7 @@ def main() -> int:
                     args.config)
 
     if not cfg["trading"]["paper_trading"]:
-        log.warning("LIVE TRADING is enabled — real orders will be sent to HTX")
+        log.warning("LIVE TRADING is enabled — real orders will be sent to MEXC")
 
     state = BotState(trade_log_csv=cfg["logging"]["trade_log_csv"])
     bot = TradingBot(cfg, state)
