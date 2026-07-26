@@ -38,7 +38,7 @@ class FakeExchange:
     position tracking) so the LiveBroker path can be tested without a network.
     """
 
-    def __init__(self, df=None, contract_size=0.001):
+    def __init__(self, df=None, contract_size=0.000001):
         self.df = df if df is not None else make_ohlcv(**UPTREND)
         self.price = float(self.df["close"].iloc[-1])
         self.contract_size = contract_size
@@ -116,9 +116,10 @@ class FakeExchange:
 
 
 @pytest.fixture
-def cfg():
+def cfg(tmp_path):
     c = load_config("config.example.yaml")
     c["trading"]["symbols"] = ["BTC/USDT:USDT"]
     c["trading"]["cooldown_minutes"] = 0
+    c["trading"]["paper_state_file"] = str(tmp_path / "paper_account.json")
     c["strategy"]["volume_filter"] = False  # synthetic volume is flat
     return c

@@ -1,6 +1,7 @@
 """Main trading engine: broker abstraction (paper/live) and the trading loop."""
 
 import logging
+import threading
 import time
 from dataclasses import dataclass
 
@@ -8,6 +9,7 @@ from . import indicators
 from .config import TIMEFRAME_SECONDS
 from .exchange import MEXCFutures
 from .notifier import EmailNotifier
+from .paper_account import PaperAccountStore
 from .risk import RiskManager, TradePlan
 from .state import BotState, Trade
 from .strategy import MultiIndicatorStrategy
@@ -34,17 +36,28 @@ class PaperBroker:
     """Simulates fills at market price so strategies can run risk-free."""
 
     def __init__(self, starting_balance: float):
-        self.balance = starting_balance
+        self.balance = float(starting_balance)
+        self._lock = threading.RLock()
 
     def equity(self, state: BotState) -> float:
         unrealized = sum(t.unrealized_pnl for t in state.open_trades.values())
-        return self.balance + unrealized
+        with self._lock:
+            return self.balance + unrealized
+
+    def set_balance(self, amount: float):
+        with self._lock:
+            self.balance = float(amount)
 
     def open_trade(self, exchange: MEXCFutures, symbol: str, plan: TradePlan, leverage: int) -> Fill:
         contracts = exchange.amount_to_contracts(symbol, plan.base_amount)
+        if contracts <= 0:
+            raise ValueError(
+                f"position size {plan.base_amount} too small for {symbol} contract size"
+            )
         base = exchange.contracts_to_base(symbol, contracts)
         fee = base * plan.entry_price * TAKER_FEE
-        self.balance -= fee
+        with self._lock:
+            self.balance -= fee
         return Fill(price=plan.entry_price, contracts=contracts, base=base)
 
     def close_trade(self, exchange: MEXCFutures, trade: Trade, exit_price: float) -> tuple[float, float]:
@@ -52,7 +65,8 @@ class PaperBroker:
         gross = direction * (exit_price - trade.entry_price) * trade.base_amount
         fee = trade.base_amount * exit_price * TAKER_FEE
         pnl = gross - fee
-        self.balance += pnl
+        with self._lock:
+            self.balance += pnl
         return pnl, exit_price
 
 
@@ -102,7 +116,19 @@ class TradingBot:
         self.risk = RiskManager(cfg)
         self.notifier = EmailNotifier(cfg)
         self.paper = bool(self.trading["paper_trading"])
-        self.paper_broker = PaperBroker(self.trading["paper_starting_balance"])
+        self._paper_account_lock = threading.RLock()
+        self.paper_store = PaperAccountStore(
+            self.trading.get("paper_state_file", "paper_account.json"),
+            self.trading["paper_starting_balance"],
+        )
+        paper_balance = self.trading["paper_starting_balance"]
+        restored_trades = []
+        self._paper_state_loaded = False
+        if self.paper:
+            paper_balance, restored_trades, self._paper_state_loaded = self.paper_store.load()
+        self.paper_broker = PaperBroker(paper_balance)
+        if restored_trades:
+            self.state.restore_open_trades(restored_trades)
         self.live_broker = LiveBroker()
         self.has_key = bool(cfg["exchange"]["api_key"]) and bool(cfg["exchange"]["api_secret"])
         self.confirm_mode = bool(self.trading["confirm_signals"])
@@ -163,6 +189,7 @@ class TradingBot:
         log.info("bot stopped")
 
     def stop(self):
+        self._persist_paper_account()
         self.state.stop_requested.set()
         self.state.wake_trader.set()
 
@@ -213,9 +240,8 @@ class TradingBot:
 
         - Live: sizing already uses the live balance every tick; this just logs
           the detected figure at startup.
-        - Paper WITH a key (practice mode): seed the simulated balance from the
-          real account so practice reflects your actual account size, unless
-          trading.use_real_balance is turned off.
+        - Paper WITH a key (practice mode): optionally seed a brand-new paper
+          account from the real balance. Existing saved paper state always wins.
         """
         if not self.has_key:
             log.info("no API key — paper balance is %.2f USDT (configured)",
@@ -229,11 +255,16 @@ class TradingBot:
             return
         self.state.log_signal("*", f"detected MEXC balance: {detected:.2f} USDT")
         log.info("detected MEXC USDT balance: %.2f", detected)
-        if self.paper and self.cfg["trading"].get("use_real_balance", True):
-            self.paper_broker.balance = detected
+        if (
+            self.paper
+            and self.cfg["trading"].get("use_real_balance", False)
+            and not self._paper_state_loaded
+        ):
+            self.paper_broker.set_balance(detected)
             self.state.log_signal(
                 "*", f"seeding paper mode with your real balance ({detected:.2f} USDT)"
             )
+            self._persist_paper_account()
 
     # ----------------------------------------------------------------- tick
 
@@ -268,6 +299,7 @@ class TradingBot:
                 self._maybe_enter(symbol, price)
 
         self.state.set_equity(self._equity())
+        self._persist_paper_account()
         self.state.set_status("halted (daily loss limit)" if self._halted_for_day else "running")
 
     def _entry_scan_due(self) -> bool:
@@ -423,6 +455,17 @@ class TradingBot:
 
     def _execute_entry(self, symbol: str, direction: str, price: float,
                        atr_value: float, score: float, reasons: list):
+        if self.paper:
+            with self._paper_account_lock:
+                return self._execute_entry_locked(
+                    symbol, direction, price, atr_value, score, reasons
+                )
+        return self._execute_entry_locked(
+            symbol, direction, price, atr_value, score, reasons
+        )
+
+    def _execute_entry_locked(self, symbol: str, direction: str, price: float,
+                              atr_value: float, score: float, reasons: list):
         equity = self._equity()
         plan = self.risk.build_plan(direction, price, atr_value, equity)
         if plan is None:
@@ -475,6 +518,7 @@ class TradingBot:
         )
         trade.update_mark(fill.price)
         self.state.add_trade(trade)
+        self._persist_paper_account()
         self.state.log_signal(
             symbol, f"OPENED {plan.side} @ {fill.price:.6g} (score {score:+.1f})"
         )
@@ -508,6 +552,7 @@ class TradingBot:
                 f"CLOSED {trade.side} @ {exit_price:.6g} pnl {pnl:+.2f} ({reason})",
             )
             self.notifier.notify_close(closed)
+            self._persist_paper_account()
         self._cooldown_until[trade.symbol] = (
             time.time() + self.trading["cooldown_minutes"] * 60.0
         )
@@ -518,6 +563,42 @@ class TradingBot:
         if self.paper:
             return self.paper_broker.equity(self.state)
         return self.live_broker.equity(self.exchange)
+
+    def _persist_paper_account(self):
+        if not self.paper:
+            return
+        try:
+            self.paper_store.save(
+                self.paper_broker.balance,
+                list(self.state.open_trades.values()),
+            )
+            self._paper_state_loaded = True
+        except OSError as exc:
+            log.error("could not save paper account state: %s", exc)
+            self.state.log_signal("*", f"could not save paper account: {exc}")
+
+    def reset_paper_account(self, amount: float = 30.0) -> tuple[bool, str]:
+        """Reset paper cash when no simulated positions are open."""
+        if not self.paper:
+            return False, "Paper balance can only be reset in paper mode."
+        try:
+            amount = float(amount)
+        except (TypeError, ValueError):
+            return False, "Enter a valid reset amount."
+        if amount <= 0:
+            return False, "Reset amount must be greater than zero."
+        with self._paper_account_lock:
+            if self.state.open_trades:
+                return False, "Close all paper positions before resetting the balance."
+            self.paper_broker.set_balance(amount)
+            self.paper_store.reset(amount)
+            self._paper_state_loaded = True
+            self._day_start_equity = amount
+            self._halted_for_day = False
+            self.state.reset_equity(amount)
+        self.state.log_signal("*", f"paper account reset to {amount:.2f} USDT")
+        self.state.wake_trader.set()
+        return True, f"Paper balance reset to {amount:.2f} USDT."
 
     def _check_daily_loss_limit(self):
         today = time.strftime("%Y-%m-%d", time.gmtime())

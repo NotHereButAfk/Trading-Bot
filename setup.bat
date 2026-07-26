@@ -1,11 +1,11 @@
 @echo off
-REM One-time setup for the HTX Futures Bot on Windows.
+REM One-time setup for the MEXC Futures Bot on Windows.
 REM Double-click this file once after downloading the project.
 setlocal
 cd /d "%~dp0"
 
 echo ==================================================
-echo    HTX Futures Bot - Windows setup
+echo    MEXC Futures Bot - Windows setup
 echo ==================================================
 echo.
 
@@ -54,8 +54,8 @@ echo ==================================================
 echo    Setup complete.
 echo.
 echo    NEXT STEPS:
-echo      1. Open config.yaml in Notepad and set it up.
-echo         (Keep paper_trading: true until you trust it.)
+echo      1. Open config.yaml in Notepad and review the settings.
+echo         The paper account starts at 30 USDT and persists between runs.
 echo      2. Double-click run_bot.bat to start the bot.
 echo ==================================================
 echo.

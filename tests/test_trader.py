@@ -121,6 +121,7 @@ def test_confirm_skips_when_position_open(cfg):
 
 def test_detect_balance_seeds_paper_when_key_present(cfg):
     cfg["trading"]["force_paper"] = True  # paper, but with a key available
+    cfg["trading"]["use_real_balance"] = True
     ex = FakeExchange()
     ex.equity_usdt = 137.42
     bot = TradingBot(cfg, BotState(), exchange=ex)
@@ -185,6 +186,22 @@ def test_live_entry_uses_actual_fill_and_reanchors_stops(cfg):
     assert trade.entry_price == signal_price + 50.0
     # stop distance (risk) preserved despite the slippage
     assert abs((trade.entry_price - trade.stop_loss) - 2.0 * 500.0) < 1e-6
+
+
+def test_live_entry_sizes_from_current_exchange_balance(cfg):
+    ex = FakeExchange()
+    ex.equity_usdt = 30.0
+    bot, _state = _live_bot(cfg, ex)
+    seen = {}
+    original = bot.risk.build_plan
+
+    def capture(side, price, atr_value, equity):
+        seen["equity"] = equity
+        return original(side, price, atr_value, equity)
+
+    bot.risk.build_plan = capture
+    bot._execute_entry("BTC/USDT:USDT", "long", ex.price, 500.0, 3.5, ["x"])
+    assert seen["equity"] == 30.0
 
 
 def test_live_close_verifies_flat(cfg):
