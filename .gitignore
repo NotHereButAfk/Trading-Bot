@@ -1,6 +1,8 @@
 # Secrets — never commit your real config or saved API keys
 config.yaml
 credentials.json
+paper_account.json
+paper_account.json.tmp
 
 # Runtime output
 trades.csv

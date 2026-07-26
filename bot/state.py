@@ -93,6 +93,18 @@ class BotState:
         with self._lock:
             self.open_trades[trade.trade_id] = trade
 
+    def restore_open_trades(self, trades: list[Trade]):
+        """Restore paper positions and advance the ID sequence past them."""
+        with self._lock:
+            for trade in trades:
+                self.open_trades[trade.trade_id] = trade
+                try:
+                    self._trade_seq = max(
+                        self._trade_seq, int(trade.trade_id.rsplit("-", 1)[1])
+                    )
+                except (IndexError, ValueError):
+                    pass
+
     def close_trade(self, trade_id: str, exit_price: float, realized_pnl: float, reason: str):
         with self._lock:
             trade = self.open_trades.pop(trade_id, None)
@@ -211,6 +223,13 @@ class BotState:
             self.equity = equity
             if self.starting_equity == 0.0:
                 self.starting_equity = equity
+
+    def reset_equity(self, equity: float):
+        """Reset both displayed equity and the session-PnL baseline."""
+        with self._lock:
+            self.equity = equity
+            self.starting_equity = equity
+            self.last_update = time.time()
 
     # ------------------------------------------------------------- snapshot
 

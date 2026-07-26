@@ -45,10 +45,13 @@ DEFAULTS = {
         # stay in simulation even when a key is configured (practice mode).
         "paper_trading": True,
         "force_paper": False,
-        "paper_starting_balance": 10000.0,
+        "paper_starting_balance": 30.0,
+        # Paper cash and open simulated positions survive restarts in this
+        # local, gitignored file.
+        "paper_state_file": "paper_account.json",
         # When a key is present, detect the real MEXC balance and use it to seed
         # paper/practice mode too (so simulation reflects your actual account).
-        "use_real_balance": True,
+        "use_real_balance": False,
         "confirm_signals": True,
         "signal_expiry_minutes": 10.0,
         "poll_interval_sec": 15,
@@ -248,6 +251,8 @@ def validate_config(cfg: dict) -> None:
         raise ValueError("trading.leverage must be between 1 and 125")
     if trading["signal_expiry_minutes"] <= 0:
         raise ValueError("trading.signal_expiry_minutes must be positive")
+    if trading["paper_starting_balance"] <= 0:
+        raise ValueError("trading.paper_starting_balance must be positive")
     if not trading["paper_trading"]:
         # Live mode is only ever reached when a key is present (see
         # _resolve_paper_mode), but keep this as a defensive sanity check.

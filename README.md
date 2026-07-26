@@ -51,8 +51,11 @@ until you press **Confirm**.
   before risking real money
 - **Test suite** — `pytest` coverage of the indicators, strategy, risk sizing,
   the confirmation/close flow and the backtester
-- **Paper-trading mode** (default) — trades a simulated balance against live MEXC
-  market data, no API keys needed
+- **Persistent paper-trading account** (default) — starts with **30 USDT**,
+  trades against live MEXC market data with no API keys, and saves its cash,
+  open positions, and trailing stops across restarts in `paper_account.json`
+- **Resettable practice balance** — use **Reset paper balance** in the control
+  panel to choose a new amount; resets are blocked until paper positions are closed
 - Trade history appended to `trades.csv`
 
 ## Quick start
@@ -77,6 +80,12 @@ python run.py
 That's it for paper trading: no API keys are required because market data is
 public. The GUI opens, signals start appearing in the log, and simulated trades
 show up in the tables.
+
+The first paper run starts with **30 USDT**. Its balance and open simulated
+positions are saved automatically, so closing and reopening the bot continues
+the same paper account. To start over, close every paper position and click
+**Reset paper balance** in the top bar; the dialog lets you choose any positive
+USDT amount and defaults to 30.
 
 Run on a server without a display:
 
@@ -205,6 +214,7 @@ bot/
   strategy.py          confluence voting engine
   risk.py              position sizing, SL/TP, trailing stops
   trader.py            trading loop, paper & live brokers
+  paper_account.py     persistent paper cash + open-position state
   notifier.py          SMTP email alerts
   state.py             thread-safe shared state + trades.csv log
   gui.py               Tkinter dashboard
@@ -219,6 +229,8 @@ bot/
   exits and trailing stops are checked every `poll_interval_sec` seconds.
 - Paper fills are simulated at the current market price with taker fees; real
   fills will differ with slippage.
+- Live position sizing reads the current USDT equity from MEXC before each entry.
+  Paper equity is kept separately in the local, gitignored `paper_account.json`.
 
 ## Disclaimer
 

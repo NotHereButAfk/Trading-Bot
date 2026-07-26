@@ -7,7 +7,7 @@ polls BotState.snapshot() on a timer, so no Tk calls ever cross threads.
 import threading
 import time
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import messagebox, simpledialog, ttk
 
 from . import config as bot_config
 from .state import BotState
@@ -24,7 +24,8 @@ AMBER = "#c9a227"
 
 class Dashboard:
     def __init__(self, state: BotState, refresh_ms: int = 2000, on_close=None,
-                 cfg: dict | None = None, test_connection=None, on_restart=None):
+                 cfg: dict | None = None, test_connection=None, on_restart=None,
+                 on_reset_paper=None):
         self.state = state
         self.refresh_ms = refresh_ms
         self.on_close = on_close
@@ -33,6 +34,8 @@ class Dashboard:
         self.test_connection = test_connection
         # Optional: set when the user asks to apply settings via a clean restart.
         self.on_restart = on_restart
+        # Optional callback: amount -> (ok: bool, message: str)
+        self.on_reset_paper = on_reset_paper
         self.restart_requested = False
         self._credentials_path = (
             bot_config.credentials_path(self.cfg) if self.cfg else "credentials.json"
@@ -77,6 +80,12 @@ class Dashboard:
                   command=self._open_settings,
                   bg="#232734", fg=FG, activebackground=ACCENT, activeforeground=BG,
                   relief="flat", padx=12, pady=2).pack(side="left", padx=16)
+        self.reset_paper_btn = tk.Button(
+            header, text="Reset paper balance", command=self._reset_paper_balance,
+            bg="#232734", fg=FG, activebackground=AMBER, activeforeground=BG,
+            relief="flat", padx=12, pady=2,
+        )
+        self.reset_paper_btn.pack(side="left")
         self.pnl_label = tk.Label(header, textvariable=self.pnl_var, bg=BG, fg=FG,
                                   font=("TkDefaultFont", 13, "bold"))
         self.pnl_label.pack(side="right")
@@ -235,6 +244,11 @@ class Dashboard:
 
     def _draw(self, snap):
         self.mode_var.set(f"MEXC Futures Bot — {snap['mode'].upper()}")
+        self.reset_paper_btn.configure(
+            state="normal"
+            if snap["mode"].lower() == "paper" and self.on_reset_paper
+            else "disabled"
+        )
         entry_mode = snap.get("entry_mode", "auto")
         self.status_var.set(f"status: {snap['status']}   |   entries: {entry_mode}")
         self.equity_var.set(f"Equity: {snap['equity']:.2f} USDT")
@@ -287,6 +301,33 @@ class Dashboard:
             stamp = time.strftime("%H:%M:%S", time.gmtime(event.timestamp))
             self.log_text.insert("end", f"{stamp}  {event.symbol:<14} {event.text}\n")
         self.log_text.configure(state="disabled")
+
+    def _reset_paper_balance(self):
+        if self.on_reset_paper is None:
+            return
+        default = float(self.cfg.get("trading", {}).get("paper_starting_balance", 30.0))
+        amount = simpledialog.askfloat(
+            "Reset paper balance",
+            "New paper balance (USDT):\n\n"
+            "All paper positions must be closed before resetting.",
+            parent=self.root,
+            initialvalue=default,
+            minvalue=0.01,
+        )
+        if amount is None:
+            return
+        if not messagebox.askyesno(
+            "Confirm paper reset",
+            f"Reset the saved paper account to {amount:.2f} USDT?",
+            parent=self.root,
+        ):
+            return
+        ok, message = self.on_reset_paper(amount)
+        if ok:
+            messagebox.showinfo("Paper account reset", message, parent=self.root)
+        else:
+            messagebox.showerror("Could not reset", message, parent=self.root)
+        self._refresh_now()
 
     # ------------------------------------------------------- settings dialog
 

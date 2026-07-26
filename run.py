@@ -109,6 +109,7 @@ def main() -> int:
                 state, refresh_ms=cfg["gui"]["refresh_ms"], on_close=bot.stop,
                 cfg=cfg, test_connection=_make_connection_tester(cfg),
                 on_restart=True,
+                on_reset_paper=bot.reset_paper_account,
             )
             dashboard.run()
             bot.stop()
