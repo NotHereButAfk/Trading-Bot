@@ -194,25 +194,31 @@ class TradingBot:
         self.state.wake_trader.set()
 
     def _resolve_universe(self) -> list:
-        """Pick the symbols to scan for entries: the configured list, or the
-        top-N most liquid MEXC perpetuals when universe == 'top_volume'."""
-        if self.trading["universe"] != "top_volume":
+        """Resolve a fixed list, top-N liquid markets, or every active market."""
+        mode = self.trading["universe"]
+        if mode == "list":
             return list(self.trading["symbols"])
-        n = int(self.trading["universe_size"])
         try:
-            symbols = self.exchange.top_symbols_by_volume(n)
+            if mode == "all":
+                symbols = self.exchange.all_symbols()
+            else:
+                n = int(self.trading["universe_size"])
+                symbols = self.exchange.top_symbols_by_volume(n)
         except Exception as exc:
-            log.exception("failed to select top-%d universe", n)
+            log.exception("failed to select %s universe", mode)
             self.state.log_signal("*", f"universe selection failed ({exc}); using config list")
             return list(self.trading["symbols"])
         if not symbols:
-            self.state.log_signal("*", "no symbols found for top-volume universe; using config list")
+            self.state.log_signal(
+                "*", f"no symbols found for {mode} universe; using config list"
+            )
             return list(self.trading["symbols"])
+        label = "all active" if mode == "all" else f"top {len(symbols)}"
         self.state.log_signal(
-            "*", f"scanning top {len(symbols)} MEXC symbols by volume "
-                 f"(e.g. {', '.join(symbols[:5])}…)"
+            "*", f"scanning {label} MEXC USDT perpetuals ({len(symbols)} markets; "
+                 f"e.g. {', '.join(symbols[:5])}…)"
         )
-        log.info("selected top-%d universe: %s", len(symbols), symbols)
+        log.info("selected %s universe (%d markets): %s", mode, len(symbols), symbols)
         return symbols
 
     def _live_preflight(self):
@@ -290,13 +296,25 @@ class TradingBot:
         # has closed since the last scan, so 100 symbols don't get polled every
         # few seconds. Exits above still run every poll.
         if not self._halted_for_day and self._entry_scan_due():
+            try:
+                entry_prices = self.exchange.fetch_last_prices(universe)
+            except Exception as exc:
+                log.warning("batch price fetch failed: %s", exc)
+                entry_prices = {}
             for symbol in universe:
                 if len(self.state.open_trades) >= self.trading["max_open_positions"]:
                     break
                 if symbol in open_symbols:
                     continue
-                price = self.exchange.fetch_last_price(symbol)
-                self._maybe_enter(symbol, price)
+                try:
+                    price = entry_prices.get(symbol)
+                    if price is None:
+                        price = self.exchange.fetch_last_price(symbol)
+                    self._maybe_enter(symbol, price)
+                except Exception as exc:
+                    # Large universes commonly contain a temporarily unavailable
+                    # or newly-listed market. One failure must not abort the rest.
+                    log.warning("%s: entry scan failed: %s", symbol, exc)
 
         self.state.set_equity(self._equity())
         self._persist_paper_account()

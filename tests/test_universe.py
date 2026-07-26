@@ -28,9 +28,9 @@ class FakeCCXT:
 
     def fetch_tickers(self, symbols=None):
         return {
-            "A/USDT:USDT": {"quoteVolume": 100.0},
-            "B/USDT:USDT": {"quoteVolume": 300.0},
-            "C/USDT:USDT": {"quoteVolume": 200.0},
+            "A/USDT:USDT": {"quoteVolume": 100.0, "last": 1.0},
+            "B/USDT:USDT": {"quoteVolume": 300.0, "last": 2.0},
+            "C/USDT:USDT": {"quoteVolume": 200.0, "last": 3.0},
         }
 
 
@@ -49,6 +49,21 @@ def test_top_symbols_ranked_by_volume_and_filtered(cfg):
     assert ex.top_symbols_by_volume(10) == ["B/USDT:USDT", "C/USDT:USDT", "A/USDT:USDT"]
 
 
+def test_all_symbols_returns_every_active_usdt_perpetual(cfg):
+    ex = _mexc_with_fake_client(cfg)
+    assert ex.all_symbols() == [
+        "A/USDT:USDT", "B/USDT:USDT", "C/USDT:USDT"
+    ]
+
+
+def test_batch_last_prices(cfg):
+    ex = _mexc_with_fake_client(cfg)
+    assert ex.fetch_last_prices(["A/USDT:USDT", "C/USDT:USDT"]) == {
+        "A/USDT:USDT": 1.0,
+        "C/USDT:USDT": 3.0,
+    }
+
+
 def test_resolve_universe_uses_top_volume(cfg):
     cfg["trading"]["universe"] = "top_volume"
     cfg["trading"]["universe_size"] = 3
@@ -56,6 +71,20 @@ def test_resolve_universe_uses_top_volume(cfg):
     ex.top_symbols = ["X/USDT:USDT", "Y/USDT:USDT", "Z/USDT:USDT"]
     bot = TradingBot(cfg, BotState(), exchange=ex)
     assert bot._resolve_universe() == ["X/USDT:USDT", "Y/USDT:USDT", "Z/USDT:USDT"]
+
+
+def test_resolve_universe_uses_all_active_markets(cfg):
+    cfg["trading"]["universe"] = "all"
+    ex = FakeExchange()
+    ex.available_symbols = ["A/USDT:USDT", "B/USDT:USDT"]
+    bot = TradingBot(cfg, BotState(), exchange=ex)
+    assert bot._resolve_universe() == ["A/USDT:USDT", "B/USDT:USDT"]
+
+
+def test_all_universe_falls_back_to_list_when_empty(cfg):
+    cfg["trading"]["universe"] = "all"
+    bot = TradingBot(cfg, BotState(), exchange=FakeExchange())
+    assert bot._resolve_universe() == list(cfg["trading"]["symbols"])
 
 
 def test_resolve_universe_falls_back_to_list_when_empty(cfg):
@@ -67,6 +96,7 @@ def test_resolve_universe_falls_back_to_list_when_empty(cfg):
 
 
 def test_list_universe_unchanged(cfg):
+    cfg["trading"]["universe"] = "list"
     bot = TradingBot(cfg, BotState(), exchange=FakeExchange())
     assert bot._resolve_universe() == list(cfg["trading"]["symbols"])
 
@@ -99,3 +129,18 @@ def test_open_position_managed_even_when_outside_universe(cfg):
     bot._tick()
     assert len(bot.state.open_trades) == 0            # BTC still stopped out
     assert bot.state.closed_trades[-1].exit_reason == "stop loss"
+
+
+def test_one_bad_market_does_not_abort_large_scan(cfg):
+    class OneBadMarket(FakeExchange):
+        def fetch_ohlcv(self, symbol, timeframe, limit=300):
+            if symbol == "BAD/USDT:USDT":
+                raise RuntimeError("market temporarily unavailable")
+            return super().fetch_ohlcv(symbol, timeframe, limit)
+
+    cfg["trading"]["confirm_signals"] = False
+    ex = OneBadMarket()
+    bot = TradingBot(cfg, BotState(), exchange=ex)
+    bot._tick(["BAD/USDT:USDT", "BTC/USDT:USDT"])
+    assert len(bot.state.open_trades) == 1
+    assert next(iter(bot.state.open_trades.values())).symbol == "BTC/USDT:USDT"

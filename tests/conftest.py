@@ -50,6 +50,7 @@ class FakeExchange:
         self.leave_open_on_close = False  # simulate a close that didn't flatten
         self.preexisting: dict[str, dict] = {}  # positions present before start
         self.top_symbols: list = []  # what top_symbols_by_volume returns
+        self.available_symbols: list = []  # what all_symbols returns
 
     def load_markets(self):
         pass
@@ -62,6 +63,9 @@ class FakeExchange:
 
     def fetch_last_price(self, symbol):
         return self.price
+
+    def fetch_last_prices(self, symbols):
+        return {symbol: self.price for symbol in symbols}
 
     def fetch_equity_usdt(self):
         return self.equity_usdt
@@ -113,6 +117,9 @@ class FakeExchange:
 
     def top_symbols_by_volume(self, n, quote="USDT"):
         return list(self.top_symbols)[:n]
+
+    def all_symbols(self, quote="USDT"):
+        return list(self.available_symbols)
 
 
 @pytest.fixture

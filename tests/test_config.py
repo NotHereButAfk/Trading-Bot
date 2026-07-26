@@ -16,6 +16,21 @@ from bot.config import (
 def test_defaults_are_paper():
     cfg = load_config("/nonexistent-config.yaml")
     assert cfg["trading"]["paper_trading"] is True
+    assert cfg["trading"]["universe"] == "top_volume"
+    assert cfg["trading"]["universe_size"] == 100
+
+
+def test_all_universe_is_valid():
+    cfg = load_config("config.example.yaml")
+    cfg["trading"]["universe"] = "all"
+    validate_config(cfg)
+
+
+def test_unknown_universe_is_rejected():
+    cfg = load_config("config.example.yaml")
+    cfg["trading"]["universe"] = "everything"
+    with pytest.raises(ValueError, match="universe"):
+        validate_config(cfg)
 
 
 def test_validate_live_still_needs_keys():

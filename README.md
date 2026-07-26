@@ -18,12 +18,12 @@ until you press **Confirm**.
 
 - **MEXC futures connection** via [ccxt](https://github.com/ccxt/ccxt) — linear
   (USDT-margined) perpetual swaps, isolated or cross margin, configurable leverage
-- **Trade the top 100 coins** — point it at a fixed symbol list, or set
-  `universe: top_volume` and it auto-scans the most liquid *N* MEXC USDT
-  perpetuals (e.g. the top 100). It scans the whole universe for entries once
-  per candle and checks exits on open positions every poll, so a big universe
-  stays within MEXC's rate limits; `max_open_positions` still caps how many
-  trades run at once.
+- **Trade the top 100 or every MEXC futures market** — the default
+  `universe: top_volume` scans the 100 most liquid MEXC USDT perpetuals. Set
+  `universe: all` to scan every active USDT perpetual, or `universe: list` for
+  a hand-picked symbol list. Prices are fetched in a batch, one unavailable
+  market cannot abort the rest of the scan, and `max_open_positions` still
+  caps how many trades run at once.
 - **Multi-indicator strategy** — EMA crossover, MACD, RSI, Bollinger Bands and
   Stochastic each cast a weighted vote; a trade opens only when enough of them
   agree *and* the ADX trend filter and volume filter confirm
@@ -174,6 +174,27 @@ An open trade closes when:
 
 Everything — periods, weights, thresholds, R-multiples — is tunable in
 `config.yaml`.
+
+### Choosing which coins to scan
+
+The default is the top 100 MEXC USDT perpetuals by 24-hour volume:
+
+```yaml
+trading:
+  universe: top_volume
+  universe_size: 100
+```
+
+To scan every active MEXC USDT perpetual instead:
+
+```yaml
+trading:
+  universe: all
+```
+
+Use a 15-minute or slower timeframe for large universes. The bot batch-fetches
+prices and scans entries once per closed candle; exits for open positions are
+still checked every poll.
 
 ## Backtesting
 

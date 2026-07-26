@@ -29,10 +29,10 @@ DEFAULTS = {
         "credentials_file": "credentials.json",
     },
     "trading": {
-        # Which markets to trade. universe: "list" uses `symbols` below;
-        # "top_volume" auto-selects the most liquid `universe_size` USDT
-        # perpetuals on MEXC (e.g. the top 100 coins) at startup.
-        "universe": "list",
+        # Which markets to trade. "top_volume" selects the most liquid
+        # `universe_size` USDT perpetuals; "all" selects every active MEXC
+        # USDT perpetual; "list" uses `symbols` below.
+        "universe": "top_volume",
         "universe_size": 100,
         "symbols": ["BTC/USDT:USDT", "ETH/USDT:USDT"],
         "timeframe": "15m",
@@ -241,8 +241,8 @@ def save_credentials(path: str, updates: dict) -> None:
 
 def validate_config(cfg: dict) -> None:
     trading = cfg["trading"]
-    if trading["universe"] not in ("list", "top_volume"):
-        raise ValueError("trading.universe must be 'list' or 'top_volume'")
+    if trading["universe"] not in ("list", "top_volume", "all"):
+        raise ValueError("trading.universe must be 'list', 'top_volume', or 'all'")
     if trading["universe"] == "list" and not trading["symbols"]:
         raise ValueError("trading.symbols must contain at least one symbol")
     if trading["universe"] == "top_volume" and not 1 <= int(trading["universe_size"]) <= 500:

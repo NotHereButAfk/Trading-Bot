@@ -57,16 +57,35 @@ class MEXCFutures:
         ticker = self.client.fetch_ticker(symbol)
         return float(ticker["last"])
 
-    def top_symbols_by_volume(self, n: int, quote: str = "USDT") -> list:
-        """Return the `n` most liquid linear `quote`-margined perpetual swaps,
-        ranked by 24h quote (USDT) volume. One tickers call, not one per market."""
+    def fetch_last_prices(self, symbols: list[str]) -> dict[str, float]:
+        """Fetch latest prices for a large entry universe in one request."""
+        if not symbols:
+            return {}
+        try:
+            tickers = self.client.fetch_tickers(symbols)
+        except Exception as exc:  # some venues reject a long symbol list
+            log.warning("fetch_tickers(subset) failed (%s); fetching all", exc)
+            tickers = self.client.fetch_tickers()
+        return {
+            symbol: float(ticker["last"])
+            for symbol in symbols
+            if (ticker := tickers.get(symbol)) and ticker.get("last") is not None
+        }
+
+    def all_symbols(self, quote: str = "USDT") -> list[str]:
+        """Every active linear perpetual settled in `quote` on MEXC."""
         self.load_markets()
-        candidates = [
+        return sorted(
             m["symbol"]
             for m in self.client.markets.values()
             if m.get("swap") and m.get("linear") and m.get("active", True)
             and m.get("settle") == quote
-        ]
+        )
+
+    def top_symbols_by_volume(self, n: int, quote: str = "USDT") -> list:
+        """Return the `n` most liquid linear `quote`-margined perpetual swaps,
+        ranked by 24h quote (USDT) volume. One tickers call, not one per market."""
+        candidates = self.all_symbols(quote)
         if not candidates:
             return []
         try:

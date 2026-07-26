@@ -64,6 +64,10 @@ The paper account starts at **30 USDT** and is saved automatically between
 restarts. Use **Reset paper balance** in the top bar to choose a new amount;
 close any open paper positions first.
 
+By default the bot scans the top 100 MEXC USDT perpetuals. In `config.yaml`, set
+`trading.universe: all` to scan every active USDT perpetual, or use
+`trading.universe: list` with your own `symbols`.
+
 To add your MEXC API key, the easiest way is **in the app**: start the bot, click
 **⚙ Settings / API Key** in the top bar, paste your key and secret, and Save.
 It's stored locally in `credentials.json` (gitignored, owner-only) — you never
